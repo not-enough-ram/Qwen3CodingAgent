@@ -1,0 +1,42 @@
+{
+  "name": "agent-helper",
+  "version": "0.1.0",
+  "description": "Multi-agent LLM coding assistant",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "agent-helper": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "coding-assistant",
+    "multi-agent"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^1.0.0",
+    "ai": "^4.0.0",
+    "commander": "^12.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

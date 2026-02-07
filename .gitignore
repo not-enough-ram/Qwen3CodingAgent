@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.agent-helper.json
+*.log
+.DS_Store
+coverage/
+.vitest/
