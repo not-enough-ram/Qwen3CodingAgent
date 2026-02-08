@@ -96,6 +96,42 @@ describe('createLLMClient', () => {
       expect(result.ok).toBe(true)
     })
 
+    it('handles Qwen3 thinking tags', async () => {
+      mockGenerateText.mockResolvedValue({
+        text: '<think>Let me think about this JSON structure...</think>\n{"message": "hello", "count": 42}',
+      } as never)
+
+      const client = createLLMClient(defaultConfig)
+      const result = await client.generateStructured(
+        [{ role: 'user', content: 'Test' }],
+        TestSchema
+      )
+
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.message).toBe('hello')
+        expect(result.value.count).toBe(42)
+      }
+    })
+
+    it('handles thinking tags with braces inside', async () => {
+      mockGenerateText.mockResolvedValue({
+        text: '<think>I need to create an object with {braces}</think>\n{"message": "test", "count": 1}',
+      } as never)
+
+      const client = createLLMClient(defaultConfig)
+      const result = await client.generateStructured(
+        [{ role: 'user', content: 'Test' }],
+        TestSchema
+      )
+
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.message).toBe('test')
+        expect(result.value.count).toBe(1)
+      }
+    })
+
     it('retries on invalid JSON', async () => {
       mockGenerateText
         .mockResolvedValueOnce({ text: 'not json' } as never)

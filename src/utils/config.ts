@@ -5,7 +5,7 @@ import { type Result, ok, err, tryCatch } from './result.js'
 
 const LLMConfigSchema = z.object({
   baseUrl: z.string().default('http://localhost:8000/v1'),
-  model: z.string().default('qwen3-coder-next'),
+  model: z.string().default('qwen3-coder:30b'),
   apiKey: z.string().default(''),
   maxTokens: z.number().positive().default(4096),
   temperature: z.number().min(0).max(2).default(0.2),

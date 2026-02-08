@@ -23,19 +23,58 @@ export type Message = {
  * Try to parse JSON from LLM response, handling common issues
  */
 function tryParseJSON(text: string): unknown {
-  // Remove markdown code fences if present
   let cleaned = text.trim()
 
+  // Remove <think>...</think> blocks (Qwen3 thinking mode)
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+
   // Handle ```json ... ``` or ``` ... ```
-  const fenceMatch = cleaned.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/m)
+  const fenceMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
   if (fenceMatch?.[1]) {
     cleaned = fenceMatch[1].trim()
   }
 
-  // Handle cases where there's text before/after the JSON
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-  if (jsonMatch?.[0]) {
-    cleaned = jsonMatch[0]
+  // Find the outermost JSON object by matching balanced braces
+  const startIdx = cleaned.indexOf('{')
+  if (startIdx !== -1) {
+    let depth = 0
+    let endIdx = -1
+    let inString = false
+    let escape = false
+
+    for (let i = startIdx; i < cleaned.length; i++) {
+      const char = cleaned[i]
+
+      if (escape) {
+        escape = false
+        continue
+      }
+
+      if (char === '\\' && inString) {
+        escape = true
+        continue
+      }
+
+      if (char === '"') {
+        inString = !inString
+        continue
+      }
+
+      if (!inString) {
+        if (char === '{') depth++
+        else if (char === '}') {
+          depth--
+          if (depth === 0) {
+            endIdx = i
+            break
+          }
+        }
+      }
+    }
+
+    if (endIdx !== -1) {
+      cleaned = cleaned.slice(startIdx, endIdx + 1)
+    }
   }
 
   return JSON.parse(cleaned)
@@ -115,7 +154,9 @@ export function createLLMClient(config: Config['llm']): LLMClient {
         if (result.error.type === 'connection') {
           return result
         }
-        lastError = result.error.message
+        // Preserve the actual error details, not just the generic message
+        const details = result.error.details
+        lastError = typeof details === 'string' ? details : result.error.message
         continue
       }
 
