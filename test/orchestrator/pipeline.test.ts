@@ -160,6 +160,136 @@ describe('runPipeline', () => {
     expect(mockLLM.generateStructured).toHaveBeenCalledTimes(6)
   })
 
+  it('catches forbidden imports and retries coder', async () => {
+    const tools = createMockToolKit()
+    // Return valid package.json so import validator has real dependency info
+    ;(tools.readFile as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === 'package.json') {
+        return ok(JSON.stringify({
+          name: 'test-project',
+          dependencies: { zod: '^3.0.0' },
+          devDependencies: { vitest: '^1.0.0' },
+        }))
+      }
+      return ok('file content')
+    })
+
+    const mockLLM: LLMClient = {
+      generate: vi.fn(),
+      generateStructured: vi.fn()
+        // Planner
+        .mockResolvedValueOnce(
+          ok({
+            tasks: [
+              { id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] },
+            ],
+          })
+        )
+        // Architect
+        .mockResolvedValueOnce(
+          ok({
+            files: [{ path: 'src/file.ts', operation: 'create', description: 'Create' }],
+            reasoning: 'New',
+          })
+        )
+        // Coder first attempt - uses forbidden import
+        .mockResolvedValueOnce(
+          ok({
+            changes: [{ path: 'src/file.ts', content: "import axios from 'axios'\nconst x = 1" }],
+          })
+        )
+        // Coder retry after import validation - uses valid import
+        .mockResolvedValueOnce(
+          ok({
+            changes: [{ path: 'src/file.ts', content: "import { request } from 'node:https'\nconst x = 1" }],
+          })
+        )
+        // Reviewer passes
+        .mockResolvedValueOnce(
+          ok({
+            passed: true,
+            issues: [],
+            summary: 'Looks good',
+          })
+        ),
+    }
+
+    const result = await runPipeline('Create feature', {
+      llm: mockLLM,
+      tools,
+      config,
+      logger,
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.success).toBe(true)
+    }
+    // Coder called twice (initial + import retry), plus planner + architect + reviewer = 5
+    expect(mockLLM.generateStructured).toHaveBeenCalledTimes(5)
+  })
+
+  it('passes validation when imports are all valid', async () => {
+    const tools = createMockToolKit()
+    ;(tools.readFile as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === 'package.json') {
+        return ok(JSON.stringify({
+          name: 'test-project',
+          dependencies: { zod: '^3.0.0' },
+        }))
+      }
+      return ok('file content')
+    })
+
+    const mockLLM: LLMClient = {
+      generate: vi.fn(),
+      generateStructured: vi.fn()
+        // Planner
+        .mockResolvedValueOnce(
+          ok({
+            tasks: [
+              { id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] },
+            ],
+          })
+        )
+        // Architect
+        .mockResolvedValueOnce(
+          ok({
+            files: [{ path: 'src/file.ts', operation: 'create', description: 'Create' }],
+            reasoning: 'New',
+          })
+        )
+        // Coder - valid imports only
+        .mockResolvedValueOnce(
+          ok({
+            changes: [{ path: 'src/file.ts', content: "import { z } from 'zod'\nimport { readFileSync } from 'node:fs'" }],
+          })
+        )
+        // Reviewer passes
+        .mockResolvedValueOnce(
+          ok({
+            passed: true,
+            issues: [],
+            summary: 'Looks good',
+          })
+        ),
+    }
+
+    const result = await runPipeline('Create feature', {
+      llm: mockLLM,
+      tools,
+      config,
+      logger,
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.success).toBe(true)
+    }
+    // No import retry needed: planner + architect + coder + reviewer = 4
+    expect(mockLLM.generateStructured).toHaveBeenCalledTimes(4)
+  })
+
   it('returns error when planner fails', async () => {
     const mockLLM: LLMClient = {
       generate: vi.fn(),

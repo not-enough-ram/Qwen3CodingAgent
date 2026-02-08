@@ -41,6 +41,8 @@ export const CoderInputSchema = z.object({
     })),
     summary: z.string(),
   }).optional().describe('Feedback from a previous review attempt'),
+  dependencyContext: z.string().optional().describe('Dependency whitelist context for the coder prompt'),
+  importValidationFeedback: z.string().optional().describe('Feedback about forbidden imports that must be fixed'),
 })
 
 export type CoderInput = z.infer<typeof CoderInputSchema>

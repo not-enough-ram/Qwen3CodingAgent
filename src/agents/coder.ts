@@ -20,6 +20,8 @@ export const coderAgent: Agent<CoderInput, CoderOutput> = async (
     plan: input.plan,
     relevantFiles: input.relevantFiles,
     reviewFeedback: input.reviewFeedback,
+    dependencyContext: input.dependencyContext,
+    importValidationFeedback: input.importValidationFeedback,
   })
 
   const result = await context.llm.generateStructured(messages, CoderOutputSchema)

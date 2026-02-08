@@ -10,6 +10,9 @@ import type { ReviewIssue } from '../schemas/reviewer.js'
 import type { LLMClient } from '../llm/client.js'
 import type { ToolKit } from '../tools/toolkit.js'
 import { gatherProjectContext, formatProjectContext } from '../tools/context.js'
+import { buildDependencyContext } from '../tools/dependencyContext.js'
+import { ImportValidator } from '../tools/importValidator.js'
+import type { ConsentManager } from '../consent/index.js'
 import type { Config } from '../utils/config.js'
 import { createLogger, type Logger } from '../utils/logger.js'
 import { type Result, ok, err } from '../utils/result.js'
@@ -32,6 +35,7 @@ export type PipelineOptions = {
   tools: ToolKit
   config: Config
   logger?: Logger
+  consentManager?: ConsentManager
 }
 
 export async function runPipeline(
@@ -48,6 +52,14 @@ export async function runPipeline(
   // Gather project context
   const projectContext = gatherProjectContext(tools, config.context)
   const formattedContext = formatProjectContext(projectContext)
+
+  // Build dependency context for coder prompt injection
+  const dependencyContext = buildDependencyContext(tools)
+
+  // Create import validator
+  const importValidator = config.pipeline.enableImportValidation
+    ? new ImportValidator(projectContext.dependencies, projectContext.devDependencies)
+    : null
 
   // Create agent context factory
   const createAgentContext = (scope: string): AgentContext => ({
@@ -106,25 +118,91 @@ export async function runPipeline(
     }
 
     // Step 2b: Run coder with retry loop
-    let codeResult = await coderAgent(
-      {
-        task: { id: task.id, title: task.title, description: task.description },
-        plan: {
-          files: plan.files.map((f) => ({
-            path: f.path,
-            operation: f.operation,
-            description: f.description,
-          })),
-          reasoning: plan.reasoning,
-        },
-        relevantFiles,
+    const coderInput = {
+      task: { id: task.id, title: task.title, description: task.description },
+      plan: {
+        files: plan.files.map((f) => ({
+          path: f.path,
+          operation: f.operation,
+          description: f.description,
+        })),
+        reasoning: plan.reasoning,
       },
-      createAgentContext('coder')
-    )
+      relevantFiles,
+      dependencyContext,
+    }
+
+    let codeResult = await coderAgent(coderInput, createAgentContext('coder'))
 
     if (!codeResult.ok) {
       errors.push(`Coder failed for task ${task.id}: ${codeResult.error.message}`)
       continue
+    }
+
+    // Step 2b-2: Import validation loop (before review)
+    if (importValidator) {
+      const jsExtensions = /\.(ts|js|tsx|jsx|mjs|cjs)$/
+
+      for (let importAttempt = 0; importAttempt < config.pipeline.maxImportRetries; importAttempt++) {
+        const allMissing: string[] = []
+        const allSuggestions: string[] = []
+
+        for (const change of codeResult.value.changes) {
+          if (!jsExtensions.test(change.path)) continue
+
+          if (options.consentManager) {
+            // Use consent-aware validation
+            const result = await importValidator.validateWithConsent(
+              change.content,
+              options.consentManager
+            )
+            if (!result.valid) {
+              allMissing.push(...result.rejectedPackages)
+              // Build suggestions for rejected packages only
+              for (const pkg of result.rejectedPackages) {
+                const baseResult = importValidator.validate(change.content)
+                const fix = baseResult.suggestedFixes.find((s) => s.startsWith(`${pkg}:`))
+                if (fix) allSuggestions.push(fix)
+              }
+            }
+          } else {
+            const result = importValidator.validate(change.content)
+            if (!result.valid) {
+              allMissing.push(...result.missingPackages)
+              allSuggestions.push(...result.suggestedFixes)
+            }
+          }
+        }
+
+        if (allMissing.length === 0) break
+
+        const uniqueMissing = [...new Set(allMissing)]
+        const uniqueSuggestions = [...new Set(allSuggestions)]
+
+        pipelineLogger.info(
+          { taskId: task.id, attempt: importAttempt + 1, missingPackages: uniqueMissing },
+          'Import validation failed, retrying coder'
+        )
+
+        const feedbackLines = [
+          `The following packages are NOT installed and MUST NOT be imported: ${uniqueMissing.join(', ')}`,
+          '',
+          'Suggested alternatives:',
+          ...uniqueSuggestions.map((s) => `- ${s}`),
+        ]
+
+        codeResult = await coderAgent(
+          { ...coderInput, importValidationFeedback: feedbackLines.join('\n') },
+          createAgentContext('coder')
+        )
+
+        if (!codeResult.ok) {
+          errors.push(`Coder import-fix retry failed for task ${task.id}: ${codeResult.error.message}`)
+          break
+        }
+      }
+
+      if (!codeResult.ok) continue
     }
 
     let reviewPassed = false
@@ -169,16 +247,7 @@ export async function runPipeline(
 
         codeResult = await coderAgent(
           {
-            task: { id: task.id, title: task.title, description: task.description },
-            plan: {
-              files: plan.files.map((f) => ({
-                path: f.path,
-                operation: f.operation,
-                description: f.description,
-              })),
-              reasoning: plan.reasoning,
-            },
-            relevantFiles,
+            ...coderInput,
             reviewFeedback: {
               issues: reviewResult.value.issues,
               summary: reviewResult.value.summary,

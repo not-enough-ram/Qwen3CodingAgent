@@ -19,6 +19,7 @@ program
   .option('-p, --project <path>', 'Project directory path', process.cwd())
   .option('-y, --yes', 'Apply changes automatically without prompting', false)
   .option('-v, --verbose', 'Enable verbose logging', false)
+  .option('--non-interactive', 'Disable interactive prompts (for CI/CD)', false)
   .action(runCommand)
 
 program

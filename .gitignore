@@ -6,3 +6,9 @@ dist/
 .DS_Store
 coverage/
 .vitest/
+claude.md
+.claude
+.instructions/*
+
+# Qwen Agent Consent Configuration (optional: remove this line to commit approvals for team)
+.qwen-agent-consent.json

@@ -15,6 +15,8 @@ const PipelineConfigSchema = z.object({
   maxReviewRetries: z.number().int().min(0).max(10).default(2),
   maxSchemaRetries: z.number().int().min(1).max(10).default(3),
   applyChangesAutomatically: z.boolean().default(false),
+  maxImportRetries: z.number().int().min(0).max(10).default(2),
+  enableImportValidation: z.boolean().default(true),
 })
 
 const ContextConfigSchema = z.object({

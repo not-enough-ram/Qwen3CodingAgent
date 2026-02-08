@@ -4,6 +4,7 @@ import { createLogger } from '../../utils/logger.js'
 import { createLLMClient } from '../../llm/client.js'
 import { createToolKit } from '../../tools/toolkit.js'
 import { runPipeline } from '../../orchestrator/pipeline.js'
+import { ConsentManager } from '../../consent/index.js'
 import {
   stageChanges,
   applyChanges,
@@ -15,6 +16,7 @@ type RunOptions = {
   project: string
   yes: boolean
   verbose: boolean
+  nonInteractive?: boolean
 }
 
 async function prompt(question: string): Promise<string> {
@@ -54,9 +56,18 @@ export async function runCommand(request: string, options: RunOptions): Promise<
   const llm = createLLMClient(config.llm)
   const tools = createToolKit(options.project)
 
+  const nonInteractive = options.nonInteractive ?? process.env['CI'] === 'true'
+  const consentManager = new ConsentManager(options.project, { nonInteractive })
+
+  const cleanup = () => {
+    consentManager.cleanup()
+  }
+  process.on('SIGINT', () => { cleanup(); process.exit(0) })
+  process.on('SIGTERM', () => { cleanup(); process.exit(0) })
+
   log.info({}, `Running: "${request}"`)
 
-  const result = await runPipeline(request, { llm, tools, config, logger })
+  const result = await runPipeline(request, { llm, tools, config, logger, consentManager })
 
   if (!result.ok) {
     console.error(`\nPipeline failed: ${result.error}`)
@@ -144,6 +155,8 @@ export async function runCommand(request: string, options: RunOptions): Promise<
       }
     }
   }
+
+  cleanup()
 
   if (!success) {
     process.exit(1)
