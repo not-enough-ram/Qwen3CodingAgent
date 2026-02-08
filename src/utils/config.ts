@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { type Result, ok, err, tryCatch } from './result.js'
 
 const LLMConfigSchema = z.object({
-  baseUrl: z.string().default('http://localhost:8000/v1'),
+  baseUrl: z.string().default('http://localhost:11434/v1'),
   model: z.string().default('qwen3-coder:30b'),
   apiKey: z.string().default(''),
   maxTokens: z.number().positive().default(4096),

@@ -48,7 +48,7 @@ pnpm build
 ### Environment Variables
 
 ```bash
-LLM_BASE_URL=http://localhost:8000/v1  # LLM server URL
+LLM_BASE_URL=http://localhost:11434/v1  # LLM server URL
 LLM_MODEL=qwen3-coder-next              # Model name
 LLM_API_KEY=                            # API key (if required)
 LLM_MAX_TOKENS=4096                     # Max tokens per request
@@ -61,7 +61,7 @@ Create `.agent-helper.json` in your project root:
 ```json
 {
   "llm": {
-    "baseUrl": "http://localhost:8000/v1",
+    "baseUrl": "http://localhost:11434/v1",
     "model": "qwen3-coder-next",
     "apiKey": "",
     "maxTokens": 4096,

@@ -17,7 +17,7 @@ const mockGenerateText = vi.mocked(generateText)
 
 describe('createLLMClient', () => {
   const defaultConfig = {
-    baseUrl: 'http://localhost:8000/v1',
+    baseUrl: 'http://localhost:11434/v1',
     model: 'test-model',
     apiKey: '',
     maxTokens: 4096,

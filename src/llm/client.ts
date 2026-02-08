@@ -105,25 +105,33 @@ export function createLLMClient(config: Config['llm']): LLMClient {
 
       return ok(response.text)
     } catch (e) {
-      const error = e as Error
-      if (error.message.includes('ECONNREFUSED') || error.message.includes('fetch failed')) {
+      const error = e as Error & { cause?: unknown; code?: string; status?: number }
+      const errorMsg = error.message || String(e)
+      const errorDetails = [
+        errorMsg,
+        error.cause ? `Cause: ${String(error.cause)}` : '',
+        error.code ? `Code: ${error.code}` : '',
+        error.status ? `Status: ${error.status}` : '',
+      ].filter(Boolean).join('; ')
+
+      if (errorMsg.includes('ECONNREFUSED') || errorMsg.includes('fetch failed')) {
         return err({
           type: 'connection',
           message: `Failed to connect to LLM server at ${config.baseUrl}`,
-          details: error.message,
+          details: errorDetails,
         })
       }
-      if (error.message.includes('timeout')) {
+      if (errorMsg.includes('timeout')) {
         return err({
           type: 'timeout',
           message: 'LLM request timed out',
-          details: error.message,
+          details: errorDetails,
         })
       }
       return err({
         type: 'invalid_response',
         message: 'Unexpected LLM error',
-        details: error.message,
+        details: errorDetails || 'No error details available',
       })
     }
   }

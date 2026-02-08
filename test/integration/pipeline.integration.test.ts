@@ -13,7 +13,7 @@ import { applyChanges, stageChanges } from '../../src/orchestrator/staging.js'
  * Integration test that runs the full pipeline against a real LLM.
  *
  * Prerequisites:
- * - LLM server must be running at the configured URL (default: http://localhost:8000/v1)
+ * - LLM server must be running at the configured URL (default: http://localhost:11434/v1)
  * - Set LLM_BASE_URL environment variable to override
  *
  * Run with: npm run test:integration
@@ -39,7 +39,7 @@ describe('Pipeline Integration', () => {
 
   beforeAll(async () => {
     // Check LLM availability
-    llmBaseUrl = process.env['LLM_BASE_URL'] || 'http://localhost:8000/v1'
+    llmBaseUrl = process.env['LLM_BASE_URL'] || 'http://localhost:11434/v1'
     llmAvailable = await isLLMAvailable(llmBaseUrl)
 
     if (!llmAvailable) {
