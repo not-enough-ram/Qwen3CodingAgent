@@ -57,9 +57,16 @@ export type CoderPromptInput = {
     }>
     summary: string
   } | undefined
+  dependencyContext?: string | undefined
+  importValidationFeedback?: string | undefined
 }
 
 export function buildCoderPrompt(input: CoderPromptInput): Message[] {
+  let systemContent = SYSTEM_PROMPT
+  if (input.dependencyContext) {
+    systemContent += `\n\n${input.dependencyContext}`
+  }
+
   let userContent = `Task: ${input.taskTitle}\n`
   userContent += `Description: ${input.taskDescription}\n\n`
 
@@ -89,8 +96,14 @@ export function buildCoderPrompt(input: CoderPromptInput): Message[] {
     }
   }
 
+  if (input.importValidationFeedback) {
+    userContent += `\n\nIMPORT VALIDATION FAILURE (you MUST fix these):\n`
+    userContent += input.importValidationFeedback
+    userContent += '\n\nRewrite the code using ONLY installed packages and Node.js built-in modules.\n'
+  }
+
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemContent },
     { role: 'user', content: userContent },
   ]
 }
