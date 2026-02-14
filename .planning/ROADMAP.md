@@ -61,10 +61,11 @@ Plans:
   2. User receives choice prompt showing both built-in alternative and installable package option
   3. Agent explains package purpose with file and line context (e.g., "Installing 'zod' for schema validation in user.ts:15")
   4. Enhanced SUBSTITUTION_MAP provides comprehensive built-in alternatives coverage
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD during phase planning
+- [ ] 03-01-PLAN.md — Structured SUBSTITUTION_MAP + enhanced ConsentPrompter with alternatives and file context
+- [ ] 03-02-PLAN.md — Pipeline integration for alternative selection flow and coder retry
 
 ### Phase 4: Installation Safety & Recovery
 **Goal**: Agent safely handles installation failures and rolls back project state on failure
@@ -90,5 +91,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Ecosystem Detection & Package Manager Support | 3/3 | ✓ Complete | 2026-02-14 |
 | 2. Dependency Analysis & Safety | 3/3 | ✓ Complete | 2026-02-14 |
-| 3. User Experience & Intelligent Alternatives | 0/TBD | Not started | - |
+| 3. User Experience & Intelligent Alternatives | 0/2 | Not started | - |
 | 4. Installation Safety & Recovery | 0/TBD | Not started | - |
