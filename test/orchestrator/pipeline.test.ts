@@ -6,6 +6,29 @@ import { getDefaultConfig } from '../../src/utils/config.js'
 import type { LLMClient } from '../../src/llm/client.js'
 import type { ToolKit } from '../../src/tools/toolkit.js'
 
+// Mock external I/O modules for categorized installation tests
+// Use vi.hoisted to create mock functions that survive hoisting
+const mocks = vi.hoisted(() => ({
+  detectPackageManager: vi.fn(),
+  validatePackagesBatch: vi.fn(),
+  installPackages: vi.fn(),
+}))
+
+vi.mock('../../src/tools/packageManager.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/tools/packageManager.js')>()
+  return { ...original, detectPackageManager: mocks.detectPackageManager }
+})
+
+vi.mock('../../src/tools/packageRegistry.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/tools/packageRegistry.js')>()
+  return { ...original, validatePackagesBatch: mocks.validatePackagesBatch }
+})
+
+vi.mock('../../src/tools/packageInstaller.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/tools/packageInstaller.js')>()
+  return { ...original, installPackages: mocks.installPackages }
+})
+
 function createMockToolKit(): ToolKit {
   return {
     readFile: vi.fn().mockReturnValue(ok('file content')),
@@ -23,6 +46,8 @@ describe('runPipeline', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: no package manager detected (skip install path for existing tests)
+    mocks.detectPackageManager.mockReturnValue(err({ found: [] }))
   })
 
   it('runs full pipeline successfully', async () => {
@@ -311,5 +336,187 @@ describe('runPipeline', () => {
     })
 
     expect(result.ok).toBe(false)
+  })
+
+  describe('categorized dependency installation', () => {
+    // Helper: create a mock LLM that generates code with specific imports
+    function createInstallTestLLM(coderChanges: Array<{ path: string; content: string }>): LLMClient {
+      return {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(
+            ok({
+              tasks: [
+                { id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] },
+              ],
+            })
+          )
+          // Architect
+          .mockResolvedValueOnce(
+            ok({
+              files: coderChanges.map((c) => ({
+                path: c.path,
+                operation: 'create',
+                description: 'Create file',
+              })),
+              reasoning: 'New files',
+            })
+          )
+          // Coder
+          .mockResolvedValueOnce(ok({ changes: coderChanges }))
+          // Reviewer
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+    }
+
+    function createToolKitWithDeps(deps: Record<string, string> = {}, devDeps: Record<string, string> = {}): ToolKit {
+      const tools = createMockToolKit()
+      ;(tools.readFile as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+        if (path === 'package.json') {
+          return ok(JSON.stringify({
+            name: 'test-project',
+            dependencies: deps,
+            devDependencies: devDeps,
+          }))
+        }
+        return ok('file content')
+      })
+      return tools
+    }
+
+    beforeEach(() => {
+      // Set up mocks for categorized install path
+      mocks.detectPackageManager.mockReturnValue(ok('npm' as const))
+      mocks.validatePackagesBatch.mockImplementation(async (packages: string[]) => {
+        const map = new Map<string, { exists: boolean }>()
+        for (const pkg of packages) {
+          map.set(pkg, { exists: true })
+        }
+        return map
+      })
+      mocks.installPackages.mockResolvedValue(
+        ok({ success: true, packages: [], packageManager: 'npm' as const })
+      )
+    })
+
+    it('installs test-file-only packages as devDependencies', async () => {
+      const mockLLM = createInstallTestLLM([
+        { path: 'test/utils.test.ts', content: "import { expect } from 'chai'\nconst x = 1" },
+      ])
+      const tools = createToolKitWithDeps()
+
+      const result = await runPipeline('Create tests', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      expect(result.ok).toBe(true)
+      // installPackages should have been called with category: 'dev' for chai
+      const installCalls = mocks.installPackages.mock.calls
+      const devCall = installCalls.find((call) => call[0].category === 'dev')
+      expect(devCall).toBeDefined()
+      expect(devCall![0].packages).toContain('chai')
+      // No prod install call with chai
+      const prodCall = installCalls.find((call) => call[0].category === 'prod' && call[0].packages.length > 0)
+      expect(prodCall).toBeUndefined()
+    })
+
+    it('installs production-file packages as production dependencies', async () => {
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/handler.ts', content: "import express from 'express'\nconst app = express()" },
+      ])
+      const tools = createToolKitWithDeps()
+
+      const result = await runPipeline('Create handler', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      expect(result.ok).toBe(true)
+      const installCalls = mocks.installPackages.mock.calls
+      const prodCall = installCalls.find((call) => call[0].category === 'prod')
+      expect(prodCall).toBeDefined()
+      expect(prodCall![0].packages).toContain('express')
+    })
+
+    it('separates mixed batch into prod and dev installations', async () => {
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/app.ts', content: "import Fastify from 'fastify'\nconst app = Fastify()" },
+        { path: 'test/app.test.ts', content: "import sinon from 'sinon'\nconst stub = sinon.stub()" },
+      ])
+      const tools = createToolKitWithDeps()
+
+      const result = await runPipeline('Create app with tests', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      expect(result.ok).toBe(true)
+      const installCalls = mocks.installPackages.mock.calls
+      const prodCall = installCalls.find((call) => call[0].category === 'prod')
+      const devCall = installCalls.find((call) => call[0].category === 'dev')
+      expect(prodCall).toBeDefined()
+      expect(prodCall![0].packages).toContain('fastify')
+      expect(devCall).toBeDefined()
+      expect(devCall![0].packages).toContain('sinon')
+    })
+
+    it('categorizes @types/* packages as dev even from production files', async () => {
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/types.ts', content: "import type { Request } from '@types/express'\nconst x = 1" },
+      ])
+      const tools = createToolKitWithDeps()
+
+      const result = await runPipeline('Add types', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      expect(result.ok).toBe(true)
+      const installCalls = mocks.installPackages.mock.calls
+      const devCall = installCalls.find((call) => call[0].category === 'dev')
+      expect(devCall).toBeDefined()
+      expect(devCall![0].packages).toContain('@types/express')
+    })
+
+    it('categorizes package as prod when used in both test and prod files', async () => {
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/validate.ts', content: "import { z } from 'zod'\nconst schema = z.string()" },
+        { path: 'test/validate.test.ts', content: "import { z } from 'zod'\nconst s = z.number()" },
+      ])
+      const tools = createToolKitWithDeps()
+
+      const result = await runPipeline('Add validation', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      expect(result.ok).toBe(true)
+      const installCalls = mocks.installPackages.mock.calls
+      const prodCall = installCalls.find((call) => call[0].category === 'prod')
+      expect(prodCall).toBeDefined()
+      expect(prodCall![0].packages).toContain('zod')
+      // zod should NOT be in any dev install
+      const devCallWithZod = installCalls.find(
+        (call) => call[0].category === 'dev' && call[0].packages.includes('zod')
+      )
+      expect(devCallWithZod).toBeUndefined()
+    })
   })
 })
