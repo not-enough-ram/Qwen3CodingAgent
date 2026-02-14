@@ -26,6 +26,36 @@ describe('buildInstallArgs', () => {
     const args = buildInstallArgs('pnpm', ['@types/node'])
     expect(args).toEqual(['add', '@types/node'])
   })
+
+  it('builds npm --save-dev args for dev category', () => {
+    const args = buildInstallArgs('npm', ['vitest'], 'dev')
+    expect(args).toEqual(['install', '--save-dev', 'vitest'])
+  })
+
+  it('builds pnpm -D args for dev category', () => {
+    const args = buildInstallArgs('pnpm', ['vitest'], 'dev')
+    expect(args).toEqual(['add', '-D', 'vitest'])
+  })
+
+  it('builds yarn --dev args for dev category', () => {
+    const args = buildInstallArgs('yarn', ['vitest'], 'dev')
+    expect(args).toEqual(['add', '--dev', 'vitest'])
+  })
+
+  it('defaults to prod when no category specified', () => {
+    const args = buildInstallArgs('npm', ['zod'])
+    expect(args).toEqual(['install', '--save', 'zod'])
+  })
+
+  it('handles multiple dev packages', () => {
+    const args = buildInstallArgs('pnpm', ['@types/node', 'vitest'], 'dev')
+    expect(args).toEqual(['add', '-D', '@types/node', 'vitest'])
+  })
+
+  it('explicit prod category matches default behavior', () => {
+    const args = buildInstallArgs('npm', ['zod'], 'prod')
+    expect(args).toEqual(['install', '--save', 'zod'])
+  })
 })
 
 describe('installPackages', () => {

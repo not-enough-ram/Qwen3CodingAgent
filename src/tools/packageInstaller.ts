@@ -21,14 +21,24 @@ const SHELL_META = /[;&|`$(){}!<>\\'"\n\r]/
  * Builds install command arguments for a given package manager.
  * Exported for testing.
  */
-export function buildInstallArgs(pm: PackageManager, packages: string[]): string[] {
+export function buildInstallArgs(
+  pm: PackageManager,
+  packages: string[],
+  category: 'dev' | 'prod' = 'prod'
+): string[] {
   switch (pm) {
     case 'npm':
-      return ['install', '--save', ...packages]
+      return category === 'dev'
+        ? ['install', '--save-dev', ...packages]
+        : ['install', '--save', ...packages]
     case 'pnpm':
-      return ['add', ...packages]
+      return category === 'dev'
+        ? ['add', '-D', ...packages]
+        : ['add', ...packages]
     case 'yarn':
-      return ['add', ...packages]
+      return category === 'dev'
+        ? ['add', '--dev', ...packages]
+        : ['add', ...packages]
   }
 }
 
@@ -40,8 +50,9 @@ export async function installPackages(options: {
   packageManager: PackageManager
   packages: string[]
   projectRoot: string
+  category?: 'dev' | 'prod'
 }): Promise<Result<InstallResult, InstallError>> {
-  const { packageManager, packages, projectRoot } = options
+  const { packageManager, packages, projectRoot, category = 'prod' } = options
 
   // Validate package names don't contain shell metacharacters (defense in depth)
   for (const pkg of packages) {
@@ -53,7 +64,7 @@ export async function installPackages(options: {
     }
   }
 
-  const args = buildInstallArgs(packageManager, packages)
+  const args = buildInstallArgs(packageManager, packages, category)
 
   return new Promise((resolve) => {
     const child = spawn(packageManager, args, {
