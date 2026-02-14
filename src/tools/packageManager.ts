@@ -47,7 +47,7 @@ export function detectPackageManager(projectRoot: string): DetectionResult {
   }
 
   // If exactly one lock file exists, use it
-  if (foundLockFiles.length === 1) {
+  if (foundLockFiles.length === 1 && foundLockFiles[0]) {
     return ok(foundLockFiles[0].pm)
   }
 
