@@ -1,5 +1,7 @@
 import type { Message } from '../llm/client.js'
 
+const MAX_CONTEXT_CHARS = 24000 // ~6K tokens, leaves room for system prompt + output
+
 const SYSTEM_PROMPT = `You are a software coder agent. Your job is to generate code changes based on an architecture plan.
 
 RESPOND ONLY WITH JSON matching this schema:
@@ -78,9 +80,19 @@ export function buildCoderPrompt(input: CoderPromptInput): Message[] {
   }
 
   if (input.relevantFiles && input.relevantFiles.length > 0) {
+    let remainingBudget = MAX_CONTEXT_CHARS - systemContent.length - userContent.length
     userContent += `\nExisting file contents:\n`
     for (const file of input.relevantFiles) {
-      userContent += `\n--- ${file.path} ---\n${file.content}\n`
+      const entry = `\n--- ${file.path} ---\n${file.content}\n`
+      if (entry.length <= remainingBudget) {
+        userContent += entry
+        remainingBudget -= entry.length
+      } else if (remainingBudget > 200) {
+        userContent += `\n--- ${file.path} (truncated) ---\n${file.content.slice(0, remainingBudget - 100)}\n...[truncated]\n`
+        break
+      } else {
+        break
+      }
     }
   }
 

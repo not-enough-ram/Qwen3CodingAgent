@@ -51,7 +51,13 @@ export type CoderInput = z.infer<typeof CoderInputSchema>
  * Output from the coder agent
  */
 export const CoderOutputSchema = z.object({
-  changes: z.array(FileChangeSchema).min(1).describe('File changes to apply'),
-})
+  changes: z.array(FileChangeSchema).describe('File changes to apply'),
+  noChangesReason: z.string().optional().describe(
+    'If no changes are needed, explain why'
+  ),
+}).refine(
+  (data) => data.changes.length > 0 || data.noChangesReason !== undefined,
+  { message: 'Either provide changes or explain why none are needed' }
+)
 
 export type CoderOutput = z.infer<typeof CoderOutputSchema>
