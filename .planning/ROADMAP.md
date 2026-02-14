@@ -45,11 +45,12 @@ Plans:
   3. Agent categorizes dependencies as production or dev based on usage context (test files → devDependencies)
   4. All installation requests flow through existing ConsentManager with proper metadata
   5. Import validation loop in pipeline integrates dependency installation before review phase
-**Plans:** 2 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Dependency categorizer (TDD) + buildInstallArgs dev support
-- [ ] 02-02-PLAN.md — Pipeline integration for categorized installation
+- [x] 02-01-PLAN.md — Dependency categorizer (TDD) + buildInstallArgs dev support
+- [x] 02-02-PLAN.md — Pipeline integration for categorized installation
+- [ ] 02-03-PLAN.md — Gap closure: pipeline categorization integration tests
 
 ### Phase 3: User Experience & Intelligent Alternatives
 **Goal**: Agent offers built-in Node.js alternatives and explains why packages are needed
@@ -88,6 +89,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Ecosystem Detection & Package Manager Support | 3/3 | ✓ Complete | 2026-02-14 |
-| 2. Dependency Analysis & Safety | 0/TBD | Not started | - |
+| 2. Dependency Analysis & Safety | 2/3 | In progress | - |
 | 3. User Experience & Intelligent Alternatives | 0/TBD | Not started | - |
 | 4. Installation Safety & Recovery | 0/TBD | Not started | - |
