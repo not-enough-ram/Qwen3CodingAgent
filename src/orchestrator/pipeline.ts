@@ -12,6 +12,9 @@ import type { ToolKit } from '../tools/toolkit.js'
 import { gatherProjectContext, formatProjectContext } from '../tools/context.js'
 import { buildDependencyContext } from '../tools/dependencyContext.js'
 import { ImportValidator } from '../tools/importValidator.js'
+import { detectPackageManager, type PackageManager } from '../tools/packageManager.js'
+import { validatePackagesBatch } from '../tools/packageRegistry.js'
+import { installPackages } from '../tools/packageInstaller.js'
 import type { ConsentManager } from '../consent/index.js'
 import type { Config } from '../utils/config.js'
 import { createLogger, type Logger } from '../utils/logger.js'
@@ -58,8 +61,24 @@ export async function runPipeline(
   // Build dependency context for coder prompt injection
   const dependencyContext = buildDependencyContext(tools)
 
+  // Detect package manager (once per pipeline run)
+  let detectedPM: PackageManager | null = null
+  const pmResult = detectPackageManager(tools.getProjectRoot())
+  if (pmResult.ok) {
+    detectedPM = pmResult.value
+    pipelineLogger.info({ packageManager: detectedPM }, 'Detected package manager')
+  } else {
+    pipelineLogger.warn(
+      { found: pmResult.error.found },
+      'Multiple lock files detected, skipping auto-installation'
+    )
+  }
+
+  // Track installed packages across tasks
+  const installedPackages: string[] = []
+
   // Create import validator
-  const importValidator = config.pipeline.enableImportValidation
+  let importValidator = config.pipeline.enableImportValidation
     ? new ImportValidator(projectContext.dependencies, projectContext.devDependencies)
     : null
 
@@ -157,7 +176,7 @@ export async function runPipeline(
       continue
     }
 
-    // Step 2b-2: Import validation loop (before review)
+    // Step 2b-2: Import validation + dependency installation loop (before review)
     if (importValidator) {
       const jsExtensions = /\.(ts|js|tsx|jsx|mjs|cjs)$/
 
@@ -167,28 +186,10 @@ export async function runPipeline(
 
         for (const change of codeResult.value.changes) {
           if (!jsExtensions.test(change.path)) continue
-
-          if (options.consentManager) {
-            // Use consent-aware validation
-            const result = await importValidator.validateWithConsent(
-              change.content,
-              options.consentManager
-            )
-            if (!result.valid) {
-              allMissing.push(...result.rejectedPackages)
-              // Build suggestions for rejected packages only
-              for (const pkg of result.rejectedPackages) {
-                const baseResult = importValidator.validate(change.content)
-                const fix = baseResult.suggestedFixes.find((s) => s.startsWith(`${pkg}:`))
-                if (fix) allSuggestions.push(fix)
-              }
-            }
-          } else {
-            const result = importValidator.validate(change.content)
-            if (!result.valid) {
-              allMissing.push(...result.missingPackages)
-              allSuggestions.push(...result.suggestedFixes)
-            }
+          const result = importValidator.validate(change.content)
+          if (!result.valid) {
+            allMissing.push(...result.missingPackages)
+            allSuggestions.push(...result.suggestedFixes)
           }
         }
 
@@ -199,24 +200,140 @@ export async function runPipeline(
 
         pipelineLogger.info(
           { taskId: task.id, attempt: importAttempt + 1, missingPackages: uniqueMissing },
-          'Import validation failed, retrying coder'
+          'Import validation found missing packages'
         )
 
-        const feedbackLines = [
-          `The following packages are NOT installed and MUST NOT be imported: ${uniqueMissing.join(', ')}`,
-          '',
-          'Suggested alternatives:',
-          ...uniqueSuggestions.map((s) => `- ${s}`),
-        ]
+        // Try installing missing packages if PM is detected
+        if (detectedPM) {
+          // Registry validation: check which packages actually exist on npm
+          const registryResults = await validatePackagesBatch(uniqueMissing)
+          const registryValid: string[] = []
+          const registryInvalid: string[] = []
 
-        codeResult = await coderAgent(
-          { ...coderInput, importValidationFeedback: feedbackLines.join('\n') },
-          createAgentContext('coder')
-        )
+          for (const [pkg, result] of registryResults) {
+            if (result.exists) {
+              registryValid.push(pkg)
+            } else {
+              registryInvalid.push(pkg)
+              pipelineLogger.warn({ package: pkg, error: result.error }, 'Package not found on registry')
+            }
+          }
 
-        if (!codeResult.ok) {
-          errors.push(`Coder import-fix retry failed for task ${task.id}: ${codeResult.error.message}`)
-          break
+          // Consent for valid packages
+          let approved: string[] = []
+          let rejected: string[] = []
+
+          if (registryValid.length > 0) {
+            if (options.autoInstall) {
+              // --auto-install flag: skip consent
+              approved = registryValid
+              pipelineLogger.info({ packages: approved }, 'Auto-installing packages')
+            } else if (options.consentManager) {
+              const installCmd = `${detectedPM} ${detectedPM === 'npm' ? 'install --save' : 'add'} ${registryValid.join(' ')}`
+              approved = await options.consentManager.checkBatchApproval(
+                registryValid,
+                { suggestedAlternatives: [`Install command: ${installCmd}`] }
+              )
+              rejected = registryValid.filter((pkg) => !approved.includes(pkg))
+            } else {
+              // No consent manager and no auto-install — can't install
+              approved = []
+              rejected = registryValid
+            }
+
+            // Install approved packages
+            if (approved.length > 0) {
+              pipelineLogger.info(
+                { packages: approved, pm: detectedPM },
+                'Installing approved packages'
+              )
+              const installResult = await installPackages({
+                packageManager: detectedPM,
+                packages: approved,
+                projectRoot: tools.getProjectRoot(),
+              })
+
+              if (installResult.ok) {
+                pipelineLogger.info({ packages: approved }, 'Packages installed successfully')
+                installedPackages.push(...approved)
+
+                // Rebuild ImportValidator with newly installed packages
+                importValidator = new ImportValidator(
+                  [...projectContext.dependencies, ...installedPackages],
+                  projectContext.devDependencies
+                )
+
+                // Re-validate imports after installation
+                let allResolved = true
+                for (const change of codeResult.value.changes) {
+                  if (!jsExtensions.test(change.path)) continue
+                  const recheck = importValidator.validate(change.content)
+                  if (!recheck.valid) {
+                    allResolved = false
+                    break
+                  }
+                }
+
+                if (allResolved) {
+                  pipelineLogger.info({}, 'All imports resolved after installation')
+                  break // No need to re-run coder
+                }
+              } else {
+                // Installation failed — feed back to coder
+                pipelineLogger.warn(
+                  { error: installResult.error.message },
+                  'Package installation failed'
+                )
+                registryInvalid.push(...approved)
+                approved = []
+              }
+            }
+          }
+
+          // Build feedback for packages that couldn't be installed
+          const unresolvable = [...registryInvalid, ...rejected]
+          if (unresolvable.length > 0) {
+            const feedbackLines: string[] = []
+            for (const pkg of registryInvalid) {
+              const suggestion = uniqueSuggestions.find((s) => s.startsWith(`${pkg}:`))
+              feedbackLines.push(
+                `Package "${pkg}" does not exist on npm registry. ${suggestion ?? 'Remove this import or implement manually.'}`
+              )
+            }
+            for (const pkg of rejected) {
+              feedbackLines.push(
+                `Package "${pkg}" was rejected by user. Rewrite without using this package.`
+              )
+            }
+
+            codeResult = await coderAgent(
+              { ...coderInput, importValidationFeedback: feedbackLines.join('\n') },
+              createAgentContext('coder')
+            )
+
+            if (!codeResult.ok) {
+              errors.push(`Coder import-fix retry failed for task ${task.id}: ${codeResult.error.message}`)
+              break
+            }
+          }
+        } else {
+          // No PM detected — fall back to original behavior (tell coder to rewrite)
+          const feedbackLines = [
+            `The following packages are NOT installed and MUST NOT be imported: ${uniqueMissing.join(', ')}`,
+            '',
+            'Suggested alternatives:',
+            ...uniqueSuggestions.map((s) => `- ${s}`),
+          ]
+
+          codeResult = await coderAgent(
+            { ...coderInput, importValidationFeedback: feedbackLines.join('\n') },
+            createAgentContext('coder')
+          )
+
+          if (!codeResult.ok) {
+            errors.push(`Coder import-fix retry failed for task ${task.id}: ${codeResult.error.message}`)
+            break
+          }
         }
       }
 
