@@ -15,6 +15,7 @@ import { ImportValidator } from '../tools/importValidator.js'
 import { detectPackageManager, type PackageManager } from '../tools/packageManager.js'
 import { validatePackagesBatch } from '../tools/packageRegistry.js'
 import { installPackages } from '../tools/packageInstaller.js'
+import { categorizePackages } from '../tools/dependencyCategorizer.js'
 import type { ConsentManager } from '../consent/index.js'
 import type { Config } from '../utils/config.js'
 import { createLogger, type Logger } from '../utils/logger.js'
@@ -74,8 +75,9 @@ export async function runPipeline(
     )
   }
 
-  // Track installed packages across tasks
-  const installedPackages: string[] = []
+  // Track installed packages across tasks (separated by category)
+  const installedProd: string[] = []
+  const installedDev: string[] = []
 
   // Create import validator
   let importValidator = config.pipeline.enableImportValidation
@@ -183,6 +185,8 @@ export async function runPipeline(
       for (let importAttempt = 0; importAttempt < config.pipeline.maxImportRetries; importAttempt++) {
         const allMissing: string[] = []
         const allSuggestions: string[] = []
+        // Track which files import each package for categorization
+        const packageFileMap = new Map<string, string[]>()
 
         for (const change of codeResult.value.changes) {
           if (!jsExtensions.test(change.path)) continue
@@ -190,6 +194,11 @@ export async function runPipeline(
           if (!result.valid) {
             allMissing.push(...result.missingPackages)
             allSuggestions.push(...result.suggestedFixes)
+            for (const pkg of result.missingPackages) {
+              const files = packageFileMap.get(pkg) ?? []
+              files.push(change.path)
+              packageFileMap.set(pkg, files)
+            }
           }
         }
 
@@ -241,26 +250,65 @@ export async function runPipeline(
               rejected = registryValid
             }
 
-            // Install approved packages
+            // Categorize and install approved packages
             if (approved.length > 0) {
+              const entries = approved.map((pkg) => ({
+                name: pkg,
+                files: packageFileMap.get(pkg) ?? [],
+              }))
+              const categorized = categorizePackages(entries)
+
               pipelineLogger.info(
-                { packages: approved, pm: detectedPM },
-                'Installing approved packages'
+                { prod: categorized.production, dev: categorized.dev, pm: detectedPM },
+                'Installing categorized packages'
               )
-              const installResult = await installPackages({
-                packageManager: detectedPM,
-                packages: approved,
-                projectRoot: tools.getProjectRoot(),
-              })
 
-              if (installResult.ok) {
-                pipelineLogger.info({ packages: approved }, 'Packages installed successfully')
-                installedPackages.push(...approved)
+              const allInstalled: string[] = []
+              let installFailed = false
 
-                // Rebuild ImportValidator with newly installed packages
+              // Install production packages first
+              if (categorized.production.length > 0) {
+                const prodResult = await installPackages({
+                  packageManager: detectedPM,
+                  packages: categorized.production,
+                  projectRoot: tools.getProjectRoot(),
+                  category: 'prod',
+                })
+                if (prodResult.ok) {
+                  allInstalled.push(...categorized.production)
+                  installedProd.push(...categorized.production)
+                } else {
+                  pipelineLogger.warn({ error: prodResult.error.message }, 'Production install failed')
+                  registryInvalid.push(...categorized.production)
+                  installFailed = true
+                }
+              }
+
+              // Install dev packages
+              if (categorized.dev.length > 0) {
+                const devResult = await installPackages({
+                  packageManager: detectedPM,
+                  packages: categorized.dev,
+                  projectRoot: tools.getProjectRoot(),
+                  category: 'dev',
+                })
+                if (devResult.ok) {
+                  allInstalled.push(...categorized.dev)
+                  installedDev.push(...categorized.dev)
+                } else {
+                  pipelineLogger.warn({ error: devResult.error.message }, 'Dev install failed')
+                  registryInvalid.push(...categorized.dev)
+                  installFailed = true
+                }
+              }
+
+              if (allInstalled.length > 0) {
+                pipelineLogger.info({ packages: allInstalled }, 'Packages installed successfully')
+
+                // Rebuild ImportValidator with separate prod/dev tracking
                 importValidator = new ImportValidator(
-                  [...projectContext.dependencies, ...installedPackages],
-                  projectContext.devDependencies
+                  [...projectContext.dependencies, ...installedProd],
+                  [...projectContext.devDependencies, ...installedDev]
                 )
 
                 // Re-validate imports after installation
@@ -278,13 +326,9 @@ export async function runPipeline(
                   pipelineLogger.info({}, 'All imports resolved after installation')
                   break // No need to re-run coder
                 }
-              } else {
-                // Installation failed — feed back to coder
-                pipelineLogger.warn(
-                  { error: installResult.error.message },
-                  'Package installation failed'
-                )
-                registryInvalid.push(...approved)
+              }
+
+              if (installFailed && allInstalled.length === 0) {
                 approved = []
               }
             }
