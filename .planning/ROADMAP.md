@@ -28,10 +28,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Agent executes package installation using detected package manager after user approval
   3. Package manager automatically updates manifest files (package.json) and lock files
   4. Installation commands integrate with existing ToolKit command execution infrastructure
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD during phase planning
+- [ ] 01-01-PLAN.md — Package manager detection from lock files (TDD)
+- [ ] 01-02-PLAN.md — npm registry validation client
+- [ ] 01-03-PLAN.md — Package installer + pipeline integration + --auto-install flag
 
 ### Phase 2: Dependency Analysis & Safety
 **Goal**: Agent identifies missing imports in generated code, validates packages against registries, and integrates with existing consent manager
@@ -84,7 +86,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Ecosystem Detection & Package Manager Support | 0/TBD | Not started | - |
+| 1. Ecosystem Detection & Package Manager Support | 0/3 | Planning complete | - |
 | 2. Dependency Analysis & Safety | 0/TBD | Not started | - |
 | 3. User Experience & Intelligent Alternatives | 0/TBD | Not started | - |
 | 4. Installation Safety & Recovery | 0/TBD | Not started | - |
