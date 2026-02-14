@@ -17,6 +17,9 @@ importers:
       commander:
         specifier: ^12.0.0
         version: 12.1.0
+      validate-npm-package-name:
+        specifier: ^7.0.2
+        version: 7.0.2
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -24,6 +27,9 @@ importers:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.32
+      '@types/validate-npm-package-name':
+        specifier: ^4.0.2
+        version: 4.0.2
       eslint:
         specifier: ^9.0.0
         version: 9.39.2
@@ -588,6 +594,9 @@ packages:
 
   '@types/node@20.19.32':
     resolution: {integrity: sha512-Ez8QE4DMfhjjTsES9K2dwfV258qBui7qxUsoaixZDiTzbde4U12e1pXGNu/ECsUIOi5/zoCxAQxIhQnaUQ2VvA==}
+
+  '@types/validate-npm-package-name@4.0.2':
+    resolution: {integrity: sha512-lrpDziQipxCEeK5kWxvljWYhUvOiB2A9izZd9B2AFarYAkqZshb4lPbRs7zKEic6eGtH8V/2qJW+dPp9OtF6bw==}
 
   '@vitest/expect@2.1.9':
     resolution: {integrity: sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw==}
@@ -1207,6 +1216,10 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  validate-npm-package-name@7.0.2:
+    resolution: {integrity: sha512-hVDIBwsRruT73PbK7uP5ebUt+ezEtCmzZz3F59BSr2F6OVFnJ/6h8liuvdLrQ88Xmnk6/+xGGuq+pG9WwTuy3A==}
+    engines: {node: ^20.17.0 || >=22.9.0}
+
   vite-node@2.1.9:
     resolution: {integrity: sha512-AM9aQ/IPrW/6ENLQg3AGY4K1N2TGZdR5e4gu/MmmR2xR3Ll1+dib+nook92g4TV3PXVyeyxdWwtaCAiUL0hMxA==}
     engines: {node: ^18.0.0 || >=20.0.0}
@@ -1634,6 +1647,8 @@ snapshots:
   '@types/node@20.19.32':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/validate-npm-package-name@4.0.2': {}
 
   '@vitest/expect@2.1.9':
     dependencies:
@@ -2270,6 +2285,8 @@ snapshots:
   use-sync-external-store@1.6.0(react@19.2.4):
     dependencies:
       react: 19.2.4
+
+  validate-npm-package-name@7.0.2: {}
 
   vite-node@2.1.9(@types/node@20.19.32):
     dependencies:
