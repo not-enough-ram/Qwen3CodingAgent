@@ -17,6 +17,7 @@ type RunOptions = {
   yes: boolean
   verbose: boolean
   nonInteractive?: boolean
+  autoInstall?: boolean
 }
 
 async function prompt(question: string): Promise<string> {
@@ -67,7 +68,14 @@ export async function runCommand(request: string, options: RunOptions): Promise<
 
   log.info({}, `Running: "${request}"`)
 
-  const result = await runPipeline(request, { llm, tools, config, logger, consentManager })
+  const result = await runPipeline(request, {
+    llm,
+    tools,
+    config,
+    logger,
+    consentManager,
+    autoInstall: options.autoInstall ?? false,
+  })
 
   if (!result.ok) {
     console.error(`\nPipeline failed: ${result.error}`)

@@ -20,6 +20,7 @@ program
   .option('-y, --yes', 'Apply changes automatically without prompting', false)
   .option('-v, --verbose', 'Enable verbose logging', false)
   .option('--non-interactive', 'Disable interactive prompts (for CI/CD)', false)
+  .option('--auto-install', 'Automatically install missing packages without prompting', false)
   .action(runCommand)
 
 program

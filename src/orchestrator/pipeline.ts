@@ -22,6 +22,7 @@ export type TaskResult = {
   changes: FileChange[]
   reviewPassed: boolean
   reviewIssues: ReviewIssue[]
+  skipped?: { reason: string }
 }
 
 export type PipelineResult = {
@@ -36,6 +37,7 @@ export type PipelineOptions = {
   config: Config
   logger?: Logger
   consentManager?: ConsentManager
+  autoInstall?: boolean
 }
 
 export async function runPipeline(
@@ -100,7 +102,15 @@ export async function runPipeline(
     )
 
     if (!archResult.ok) {
+      const reason = `Architect failed: ${archResult.error.message}`
       errors.push(`Architect failed for task ${task.id}: ${archResult.error.message}`)
+      results.push({
+        task,
+        changes: [],
+        reviewPassed: false,
+        reviewIssues: [],
+        skipped: { reason },
+      })
       continue
     }
 
@@ -135,7 +145,15 @@ export async function runPipeline(
     let codeResult = await coderAgent(coderInput, createAgentContext('coder'))
 
     if (!codeResult.ok) {
+      const reason = `Coder failed: ${codeResult.error.message}`
       errors.push(`Coder failed for task ${task.id}: ${codeResult.error.message}`)
+      results.push({
+        task,
+        changes: [],
+        reviewPassed: false,
+        reviewIssues: [],
+        skipped: { reason },
+      })
       continue
     }
 

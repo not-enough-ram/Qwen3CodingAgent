@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path'
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { type Result, ok, err, tryCatch } from '../utils/result.js'
 import type { ToolError } from '../schemas/common.js'
 
@@ -23,9 +23,25 @@ const ALLOWED_COMMANDS = new Set([
   'tsc',
   'npm',
   'pnpm',
+  'yarn',
   'node',
   'npx',
   'git',
+])
+
+const SHELL_META = /[;&|`$(){}!<>\\'"\n\r]/
+
+const SENSITIVE_PATHS = new Set([
+  '.env',
+  '.env.local',
+  '.env.production',
+  '.env.development',
+  '.git',
+  '.gitignore',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  '.qwen-agent-consent.json',
+  '.agent-helper.json',
 ])
 
 function isPathSafe(basePath: string, targetPath: string): boolean {
@@ -39,6 +55,12 @@ function normalizePath(basePath: string, inputPath: string): string {
     return relative(basePath, inputPath)
   }
   return inputPath
+}
+
+function isSensitivePath(normalizedPath: string): boolean {
+  const segments = normalizedPath.split('/')
+  const firstSegment = segments[0] ?? ''
+  return SENSITIVE_PATHS.has(normalizedPath) || SENSITIVE_PATHS.has(firstSegment)
 }
 
 export function createToolKit(projectRoot: string): ToolKit {
@@ -82,6 +104,14 @@ export function createToolKit(projectRoot: string): ToolKit {
       return err({
         type: 'invalid_path',
         message: 'Path traversal not allowed',
+        path,
+      })
+    }
+
+    if (isSensitivePath(normalizedPath)) {
+      return err({
+        type: 'permission_denied',
+        message: `Writing to protected path is not allowed: ${path}`,
         path,
       })
     }
@@ -158,37 +188,47 @@ export function createToolKit(projectRoot: string): ToolKit {
       })
     }
 
-    return tryCatch(
-      () => {
-        const fullCommand = `${cmd} ${args.join(' ')}`
-        const stdout = execSync(fullCommand, {
-          cwd: root,
-          encoding: 'utf-8',
-          timeout: 60000,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        })
-        return { stdout, stderr: '', exitCode: 0 }
-      },
-      (e): ToolError => {
-        const error = e as { status?: number; stdout?: string; stderr?: string; message?: string }
-        if (error.status !== undefined) {
-          return {
-            type: 'execution_failed',
-            message: `Command failed with exit code ${error.status}`,
-          }
-        }
-        if (error.message?.includes('ETIMEDOUT')) {
-          return {
-            type: 'timeout',
-            message: 'Command timed out',
-          }
-        }
-        return {
+    for (const arg of args) {
+      if (SHELL_META.test(arg)) {
+        return err({
           type: 'execution_failed',
-          message: `Command failed: ${error.message ?? 'Unknown error'}`,
-        }
+          message: `Argument contains disallowed shell characters: ${arg}`,
+        })
       }
-    )
+    }
+
+    const result = spawnSync(cmd, args, {
+      cwd: root,
+      encoding: 'utf-8',
+      timeout: 60000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    if (result.error) {
+      const message = result.error.message
+      if (message.includes('ETIMEDOUT') || message.includes('TIMEOUT')) {
+        return err({
+          type: 'timeout',
+          message: 'Command timed out',
+        })
+      }
+      if (message.includes('ENOENT')) {
+        return err({
+          type: 'execution_failed',
+          message: `Command not found: ${cmd}`,
+        })
+      }
+      return err({
+        type: 'execution_failed',
+        message: `Command failed: ${message}`,
+      })
+    }
+
+    return ok({
+      stdout: result.stdout ?? '',
+      stderr: result.stderr ?? '',
+      exitCode: result.status ?? 1,
+    })
   }
 
   const getProjectRoot = (): string => root

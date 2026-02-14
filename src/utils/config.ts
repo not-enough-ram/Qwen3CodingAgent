@@ -17,12 +17,16 @@ const PipelineConfigSchema = z.object({
   applyChangesAutomatically: z.boolean().default(false),
   maxImportRetries: z.number().int().min(0).max(10).default(2),
   enableImportValidation: z.boolean().default(true),
+  autoInstall: z.boolean().default(false),
 })
 
 const ContextConfigSchema = z.object({
   maxFileSize: z.number().positive().default(10000),
   maxDirectoryDepth: z.number().int().min(1).max(10).default(3),
-  ignorePatterns: z.array(z.string()).default(['node_modules', '.git', 'dist', 'build']),
+  ignorePatterns: z.array(z.string()).default([
+    'node_modules', '.git', 'dist', 'build',
+    '.env', '.claude', '.instructions',
+  ]),
 })
 
 const ConfigSchema = z.object({
