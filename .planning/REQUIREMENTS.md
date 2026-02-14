@@ -65,11 +65,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEP-01 | Phase 1 | Pending |
+| DEP-01 | Phase 1 | ✓ Done |
 | DEP-02 | Phase 2 | Pending |
 | DEP-03 | Phase 2 | Pending |
-| INST-01 | Phase 1 | Pending |
-| INST-02 | Phase 1 | Pending |
+| INST-01 | Phase 1 | ✓ Done |
+| INST-02 | Phase 1 | ✓ Done |
 | INST-03 | Phase 3 | Pending |
 | INST-04 | Phase 3 | Pending |
 | SAFE-01 | Phase 2 | Pending |

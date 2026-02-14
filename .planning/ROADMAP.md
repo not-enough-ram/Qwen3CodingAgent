@@ -12,7 +12,7 @@ This roadmap delivers automatic dependency management capabilities to QwenCoding
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Ecosystem Detection & Package Manager Support** - Auto-detect Node.js package managers and execute approved installations
+- [x] **Phase 1: Ecosystem Detection & Package Manager Support** - Auto-detect Node.js package managers and execute approved installations
 - [ ] **Phase 2: Dependency Analysis & Safety** - Identify missing imports, validate packages, and integrate consent flow
 - [ ] **Phase 3: User Experience & Intelligent Alternatives** - Offer built-in alternatives and explain dependency needs
 - [ ] **Phase 4: Installation Safety & Recovery** - Handle installation failures with rollback capabilities
@@ -31,9 +31,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Package manager detection from lock files (TDD)
-- [ ] 01-02-PLAN.md — npm registry validation client
-- [ ] 01-03-PLAN.md — Package installer + pipeline integration + --auto-install flag
+- [x] 01-01-PLAN.md — Package manager detection from lock files (TDD)
+- [x] 01-02-PLAN.md — npm registry validation client
+- [x] 01-03-PLAN.md — Package installer + pipeline integration + --auto-install flag
 
 ### Phase 2: Dependency Analysis & Safety
 **Goal**: Agent identifies missing imports in generated code, validates packages against registries, and integrates with existing consent manager
@@ -86,7 +86,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Ecosystem Detection & Package Manager Support | 0/3 | Planning complete | - |
+| 1. Ecosystem Detection & Package Manager Support | 3/3 | ✓ Complete | 2026-02-14 |
 | 2. Dependency Analysis & Safety | 0/TBD | Not started | - |
 | 3. User Experience & Intelligent Alternatives | 0/TBD | Not started | - |
 | 4. Installation Safety & Recovery | 0/TBD | Not started | - |
