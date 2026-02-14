@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-13)
 ## Current Position
 
 Phase: 1 of 4 (Ecosystem Detection & Package Manager Support)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-02-14 — Completed plan 01-02 (npm Registry Validation)
+Plan: 3 of 3 in current phase
+Status: All plans complete, awaiting verification
+Last activity: 2026-02-14 — Completed plan 01-03 (Package Installer + Pipeline Integration)
 
-Progress: [████░░░░░░] 17%
+Progress: [█████████░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 2 minutes
-- Total execution time: 0.1 hours
+- Total plans completed: 3
+- Average duration: 3 minutes
+- Total execution time: 0.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 2 | 4m | 2m |
+| 01 | 3 | 9m | 3m |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (1m), 01-02 (3.5m)
-- Trend: Steady progress
+- Last 5 plans: 01-01 (1m), 01-02 (3.5m), 01-03 (5m)
+- Trend: Increasing complexity per plan (expected for integration work)
 
 *Updated after each plan completion*
 
@@ -54,6 +54,11 @@ Recent decisions affecting current work:
 - Set 5-second timeout on registry requests (01-02: prevents hanging)
 - Use abbreviated metadata endpoint for smaller responses (01-02: 95% smaller)
 - Validate package name format before HTTP requests (01-02: prevents invalid requests)
+- Detect PM once per pipeline run (01-03: avoids redundant fs checks)
+- Registry validation before consent prompt (01-03: prevents hallucinated packages reaching user)
+- Rebuild ImportValidator after install (01-03: new instance with updated deps)
+- Fall back to coder rewrite when PM unavailable (01-03: preserves original behavior)
+- Shell metacharacter validation as defense in depth (01-03: same SHELL_META as toolkit)
 
 ### Pending Todos
 
@@ -61,19 +66,16 @@ None yet.
 
 ### Blockers/Concerns
 
-**Integration Risks:**
-- ToolKit command execution timeout is 60s (from CONCERNS.md) — may need extension for slow package installations
-- Import validation loop runs once before review phase — need to ensure dependency installation happens in this window
-- Directory tree gathering is synchronous — may affect performance during context gathering with large node_modules
+**Resolved:**
+- ~~Import validation loop integration~~ — dependency installation now happens within the loop (01-03)
 
-**Stack Verification Needed (from research):**
-- parse-imports package maintenance status for 2026 unknown
-- which-pm vs @pnpm/which-pm current best practice needs verification
-- All recommended package versions need validation against current npm registry
+**Remaining:**
+- ToolKit command execution timeout is 60s — installer uses spawn() directly (bypasses toolkit), not blocked
+- Directory tree gathering is synchronous — may affect performance with large node_modules
 
 ## Session Continuity
 
-Last session: 2026-02-14 (plan 01-02 execution)
-Stopped at: Completed 01-02-PLAN.md - npm Registry Validation
+Last session: 2026-02-14 (plan 01-03 execution)
+Stopped at: All 3 plans complete, ready for phase verification
 Resume file: None
-Next action: Execute plan 01-03 or continue with remaining phase 1 plans
+Next action: Run phase verification (gsd-verifier)
