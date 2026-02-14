@@ -9,22 +9,22 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Dependency Detection
 
-- [ ] **DEP-01**: Agent auto-detects project package manager from lock files (pnpm-lock.yaml, package-lock.json, yarn.lock)
-- [ ] **DEP-02**: Agent identifies missing imports in generated code and maps them to installable packages
-- [ ] **DEP-03**: Agent categorizes dependencies as production or dev based on usage context
+- [x] **DEP-01**: Agent auto-detects project package manager from lock files (pnpm-lock.yaml, package-lock.json, yarn.lock)
+- [x] **DEP-02**: Agent identifies missing imports in generated code and maps them to installable packages
+- [x] **DEP-03**: Agent categorizes dependencies as production or dev based on usage context
 
 ### Dependency Installation
 
-- [ ] **INST-01**: Agent installs approved packages using the detected package manager
-- [ ] **INST-02**: Package manager updates manifest files (package.json) and lock files automatically
+- [x] **INST-01**: Agent installs approved packages using the detected package manager
+- [x] **INST-02**: Package manager updates manifest files (package.json) and lock files automatically
 - [ ] **INST-03**: Agent offers built-in alternatives when available (e.g., node:https instead of axios)
 - [ ] **INST-04**: User can choose between installing a package or using the built-in alternative
 
 ### Safety
 
-- [ ] **SAFE-01**: Agent validates package names against npm registry before installing
+- [x] **SAFE-01**: Agent validates package names against npm registry before installing
 - [ ] **SAFE-02**: Agent rolls back to previous state if installation fails or breaks the project
-- [ ] **SAFE-03**: All installations require user consent via existing consent manager
+- [x] **SAFE-03**: All installations require user consent via existing consent manager
 
 ## v2 Requirements
 
@@ -66,15 +66,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DEP-01 | Phase 1 | ✓ Done |
-| DEP-02 | Phase 2 | Pending |
-| DEP-03 | Phase 2 | Pending |
+| DEP-02 | Phase 2 | ✓ Done |
+| DEP-03 | Phase 2 | ✓ Done |
 | INST-01 | Phase 1 | ✓ Done |
 | INST-02 | Phase 1 | ✓ Done |
 | INST-03 | Phase 3 | Pending |
 | INST-04 | Phase 3 | Pending |
-| SAFE-01 | Phase 2 | Pending |
+| SAFE-01 | Phase 2 | ✓ Done |
 | SAFE-02 | Phase 4 | Pending |
-| SAFE-03 | Phase 2 | Pending |
+| SAFE-03 | Phase 2 | ✓ Done |
 
 **Coverage:**
 - v1 requirements: 10 total
