@@ -338,6 +338,303 @@ describe('runPipeline', () => {
     expect(result.ok).toBe(false)
   })
 
+  describe('alternative selection flow', () => {
+    function createToolKitWithDeps(deps: Record<string, string> = {}, devDeps: Record<string, string> = {}): ToolKit {
+      const tools = createMockToolKit()
+      ;(tools.readFile as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+        if (path === 'package.json') {
+          return ok(JSON.stringify({
+            name: 'test-project',
+            dependencies: deps,
+            devDependencies: devDeps,
+          }))
+        }
+        return ok('file content')
+      })
+      return tools
+    }
+
+    function createConsentManagerMock(batchResult: {
+      approved: string[]
+      alternatives: Map<string, string>
+      rejected: string[]
+    }) {
+      return {
+        checkApproval: vi.fn().mockResolvedValue(true),
+        checkBatchApproval: vi.fn().mockResolvedValue([]),
+        checkBatchApprovalWithAlternatives: vi.fn().mockResolvedValue(batchResult),
+        setNonInteractive: vi.fn(),
+        cleanup: vi.fn(),
+      }
+    }
+
+    beforeEach(() => {
+      mocks.detectPackageManager.mockReturnValue(ok('npm' as const))
+      mocks.validatePackagesBatch.mockImplementation(async (packages: string[]) => {
+        const map = new Map<string, { exists: boolean }>()
+        for (const pkg of packages) {
+          map.set(pkg, { exists: true })
+        }
+        return map
+      })
+      mocks.installPackages.mockResolvedValue(
+        ok({ success: true, packages: [], packageManager: 'npm' as const })
+      )
+    })
+
+    it('alternative selection triggers coder retry with feedback', async () => {
+      const tools = createToolKitWithDeps()
+      const consentManager = createConsentManagerMock({
+        approved: [],
+        alternatives: new Map([['uuid', 'node:crypto']]),
+        rejected: [],
+      })
+
+      const mockLLM: LLMClient = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(ok({
+            tasks: [{ id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] }],
+          }))
+          // Architect
+          .mockResolvedValueOnce(ok({
+            files: [{ path: 'src/id.ts', operation: 'create', description: 'Create' }],
+            reasoning: 'New',
+          }))
+          // Coder first attempt - imports uuid (not installed)
+          .mockResolvedValueOnce(ok({
+            changes: [{ path: 'src/id.ts', content: "import { v4 } from 'uuid'\nexport const id = v4()" }],
+          }))
+          // Coder retry after alternative selection - uses node:crypto
+          .mockResolvedValueOnce(ok({
+            changes: [{ path: 'src/id.ts', content: "import { randomUUID } from 'node:crypto'\nexport const id = randomUUID()" }],
+          }))
+          // Reviewer passes
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+
+      const result = await runPipeline('Generate IDs', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        consentManager: consentManager as unknown as import('../../src/consent/index.js').ConsentManager,
+      })
+
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.success).toBe(true)
+      }
+
+      // Coder called twice: initial + alternative retry
+      // Total: planner + architect + coder + coder-retry + reviewer = 5
+      expect(mockLLM.generateStructured).toHaveBeenCalledTimes(5)
+
+      // installPackages should NOT be called for uuid
+      expect(mocks.installPackages).not.toHaveBeenCalled()
+    })
+
+    it('mixed consent results: some install, some alternative', async () => {
+      const tools = createToolKitWithDeps()
+      const consentManager = createConsentManagerMock({
+        approved: ['express'],
+        alternatives: new Map([['uuid', 'node:crypto']]),
+        rejected: [],
+      })
+
+      const mockLLM: LLMClient = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(ok({
+            tasks: [{ id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] }],
+          }))
+          // Architect
+          .mockResolvedValueOnce(ok({
+            files: [{ path: 'src/app.ts', operation: 'create', description: 'Create' }],
+            reasoning: 'New',
+          }))
+          // Coder first attempt - imports express and uuid (both not installed)
+          .mockResolvedValueOnce(ok({
+            changes: [{
+              path: 'src/app.ts',
+              content: "import express from 'express'\nimport { v4 } from 'uuid'\nconst app = express()\nconst id = v4()",
+            }],
+          }))
+          // Coder retry after alternative selection for uuid
+          .mockResolvedValueOnce(ok({
+            changes: [{
+              path: 'src/app.ts',
+              content: "import express from 'express'\nimport { randomUUID } from 'node:crypto'\nconst app = express()\nconst id = randomUUID()",
+            }],
+          }))
+          // Reviewer passes
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+
+      const result = await runPipeline('Create app', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        consentManager: consentManager as unknown as import('../../src/consent/index.js').ConsentManager,
+      })
+
+      expect(result.ok).toBe(true)
+
+      // express should be installed (approved)
+      const installCalls = mocks.installPackages.mock.calls
+      const installedPkgs = installCalls.flatMap((call) => call[0].packages as string[])
+      expect(installedPkgs).toContain('express')
+      // uuid should NOT be installed (alternative selected)
+      expect(installedPkgs).not.toContain('uuid')
+    })
+
+    it('passes file context to checkBatchApprovalWithAlternatives', async () => {
+      const tools = createToolKitWithDeps()
+      const consentManager = createConsentManagerMock({
+        approved: ['axios'],
+        alternatives: new Map(),
+        rejected: [],
+      })
+
+      const mockLLM: LLMClient = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(ok({
+            tasks: [{ id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] }],
+          }))
+          // Architect
+          .mockResolvedValueOnce(ok({
+            files: [
+              { path: 'src/api.ts', operation: 'create', description: 'Create' },
+              { path: 'src/client.ts', operation: 'create', description: 'Create' },
+            ],
+            reasoning: 'New',
+          }))
+          // Coder - two files importing axios
+          .mockResolvedValueOnce(ok({
+            changes: [
+              { path: 'src/api.ts', content: "import axios from 'axios'\naxios.get('/api')" },
+              { path: 'src/client.ts', content: "import axios from 'axios'\naxios.post('/data')" },
+            ],
+          }))
+          // Reviewer passes
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+
+      await runPipeline('Create API', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        consentManager: consentManager as unknown as import('../../src/consent/index.js').ConsentManager,
+      })
+
+      // Verify file context was passed
+      const consentCall = consentManager.checkBatchApprovalWithAlternatives.mock.calls[0]
+      expect(consentCall).toBeDefined()
+      const options = consentCall![1]
+      expect(options.fileContext).toBeDefined()
+      const axiosFiles = options.fileContext.get('axios')
+      expect(axiosFiles).toContain('src/api.ts')
+      expect(axiosFiles).toContain('src/client.ts')
+    })
+
+    it('passes structured alternatives from validate() to consent', async () => {
+      const tools = createToolKitWithDeps()
+      const consentManager = createConsentManagerMock({
+        approved: ['axios'],
+        alternatives: new Map(),
+        rejected: [],
+      })
+
+      const mockLLM: LLMClient = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(ok({
+            tasks: [{ id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] }],
+          }))
+          // Architect
+          .mockResolvedValueOnce(ok({
+            files: [{ path: 'src/api.ts', operation: 'create', description: 'Create' }],
+            reasoning: 'New',
+          }))
+          // Coder - imports axios (has a known alternative in SUBSTITUTION_MAP)
+          .mockResolvedValueOnce(ok({
+            changes: [{ path: 'src/api.ts', content: "import axios from 'axios'\naxios.get('/api')" }],
+          }))
+          // Reviewer passes
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+
+      await runPipeline('Create API', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        consentManager: consentManager as unknown as import('../../src/consent/index.js').ConsentManager,
+      })
+
+      // Verify structured alternatives were passed to consent
+      const consentCall = consentManager.checkBatchApprovalWithAlternatives.mock.calls[0]
+      expect(consentCall).toBeDefined()
+      const options = consentCall![1]
+      expect(options.alternatives).toBeDefined()
+      const axiosAlt = options.alternatives.get('axios')
+      expect(axiosAlt).toBeDefined()
+      expect(axiosAlt.module).toBe('fetch')
+      expect(axiosAlt.description).toMatch(/fetch/)
+    })
+
+    it('auto-install mode bypasses alternative selection', async () => {
+      const tools = createToolKitWithDeps()
+      const consentManager = createConsentManagerMock({
+        approved: [],
+        alternatives: new Map(),
+        rejected: [],
+      })
+
+      const mockLLM: LLMClient = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(ok({
+            tasks: [{ id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] }],
+          }))
+          // Architect
+          .mockResolvedValueOnce(ok({
+            files: [{ path: 'src/id.ts', operation: 'create', description: 'Create' }],
+            reasoning: 'New',
+          }))
+          // Coder - imports uuid
+          .mockResolvedValueOnce(ok({
+            changes: [{ path: 'src/id.ts', content: "import { v4 } from 'uuid'\nexport const id = v4()" }],
+          }))
+          // Reviewer passes
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+
+      await runPipeline('Generate IDs', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+        consentManager: consentManager as unknown as import('../../src/consent/index.js').ConsentManager,
+      })
+
+      // checkBatchApprovalWithAlternatives should NOT be called in auto-install mode
+      expect(consentManager.checkBatchApprovalWithAlternatives).not.toHaveBeenCalled()
+
+      // installPackages should be called directly
+      expect(mocks.installPackages).toHaveBeenCalled()
+    })
+  })
+
   describe('categorized dependency installation', () => {
     // Helper: create a mock LLM that generates code with specific imports
     function createInstallTestLLM(coderChanges: Array<{ path: string; content: string }>): LLMClient {
