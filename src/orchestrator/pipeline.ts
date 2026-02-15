@@ -11,7 +11,7 @@ import type { LLMClient } from '../llm/client.js'
 import type { ToolKit } from '../tools/toolkit.js'
 import { gatherProjectContext, formatProjectContext } from '../tools/context.js'
 import { buildDependencyContext } from '../tools/dependencyContext.js'
-import { ImportValidator } from '../tools/importValidator.js'
+import { ImportValidator, type AlternativeInfo } from '../tools/importValidator.js'
 import { detectPackageManager, type PackageManager } from '../tools/packageManager.js'
 import { validatePackagesBatch } from '../tools/packageRegistry.js'
 import { installPackages } from '../tools/packageInstaller.js'
@@ -187,6 +187,8 @@ export async function runPipeline(
         const allSuggestions: string[] = []
         // Track which files import each package for categorization
         const packageFileMap = new Map<string, string[]>()
+        // Collect structured alternatives for consent UX
+        const allAlternatives = new Map<string, AlternativeInfo>()
 
         for (const change of codeResult.value.changes) {
           if (!jsExtensions.test(change.path)) continue
@@ -198,6 +200,9 @@ export async function runPipeline(
               const files = packageFileMap.get(pkg) ?? []
               files.push(change.path)
               packageFileMap.set(pkg, files)
+            }
+            for (const [pkg, altInfo] of result.alternatives) {
+              allAlternatives.set(pkg, altInfo)
             }
           }
         }
@@ -231,19 +236,26 @@ export async function runPipeline(
           // Consent for valid packages
           let approved: string[] = []
           let rejected: string[] = []
+          // Track packages where user chose a built-in alternative
+          let selectedAlternatives = new Map<string, string>()
 
           if (registryValid.length > 0) {
+
             if (options.autoInstall) {
               // --auto-install flag: skip consent
               approved = registryValid
               pipelineLogger.info({ packages: approved }, 'Auto-installing packages')
             } else if (options.consentManager) {
-              const installCmd = `${detectedPM} ${detectedPM === 'npm' ? 'install --save' : 'add'} ${registryValid.join(' ')}`
-              approved = await options.consentManager.checkBatchApproval(
+              const batchResult = await options.consentManager.checkBatchApprovalWithAlternatives(
                 registryValid,
-                { suggestedAlternatives: [`Install command: ${installCmd}`] }
+                {
+                  alternatives: allAlternatives,
+                  fileContext: packageFileMap,
+                }
               )
-              rejected = registryValid.filter((pkg) => !approved.includes(pkg))
+              approved = batchResult.approved
+              rejected = [...batchResult.rejected]
+              selectedAlternatives = batchResult.alternatives
             } else {
               // No consent manager and no auto-install — can't install
               approved = []
@@ -331,6 +343,35 @@ export async function runPipeline(
               if (installFailed && allInstalled.length === 0) {
                 approved = []
               }
+            }
+          }
+
+          // Handle alternative selections: trigger coder retry with built-in replacement instructions
+          if (selectedAlternatives.size > 0) {
+            const altFeedbackLines: string[] = []
+            for (const [pkg, altModule] of selectedAlternatives) {
+              const altInfo = allAlternatives.get(pkg)
+              altFeedbackLines.push(
+                `User chose built-in alternative for "${pkg}". Replace all imports of "${pkg}" with "${altModule}".`
+              )
+              if (altInfo?.example) {
+                altFeedbackLines.push(`  Example: ${altInfo.example}`)
+              }
+            }
+
+            pipelineLogger.info(
+              { taskId: task.id, alternatives: [...selectedAlternatives.keys()] },
+              'Rewriting code with built-in alternatives'
+            )
+
+            codeResult = await coderAgent(
+              { ...coderInput, importValidationFeedback: altFeedbackLines.join('\n') },
+              createAgentContext('coder')
+            )
+
+            if (!codeResult.ok) {
+              errors.push(`Coder alternative-rewrite failed for task ${task.id}: ${codeResult.error.message}`)
+              break
             }
           }
 
