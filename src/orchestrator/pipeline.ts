@@ -16,6 +16,7 @@ import { detectPackageManager, type PackageManager } from '../tools/packageManag
 import { validatePackagesBatch } from '../tools/packageRegistry.js'
 import { installPackages } from '../tools/packageInstaller.js'
 import { categorizePackages } from '../tools/dependencyCategorizer.js'
+import { createBackup, restoreBackup, cleanupBackup, formatInstallFailureFeedback } from '../tools/installationBackup.js'
 import type { ConsentManager } from '../consent/index.js'
 import type { Config } from '../utils/config.js'
 import { createLogger, type Logger } from '../utils/logger.js'
@@ -277,20 +278,30 @@ export async function runPipeline(
 
               const allInstalled: string[] = []
               let installFailed = false
+              let lastInstallError: import('../tools/packageInstaller.js').InstallError | null = null
 
               // Install production packages first
               if (categorized.production.length > 0) {
+                const prodBackup = createBackup(tools.getProjectRoot(), detectedPM)
+
                 const prodResult = await installPackages({
                   packageManager: detectedPM,
                   packages: categorized.production,
                   projectRoot: tools.getProjectRoot(),
                   category: 'prod',
                 })
+
                 if (prodResult.ok) {
                   allInstalled.push(...categorized.production)
                   installedProd.push(...categorized.production)
+                  cleanupBackup(prodBackup)
                 } else {
-                  pipelineLogger.warn({ error: prodResult.error.message }, 'Production install failed')
+                  restoreBackup(prodBackup)
+                  lastInstallError = prodResult.error
+                  pipelineLogger.warn(
+                    { error: prodResult.error.message },
+                    'Production install failed, rolled back project state'
+                  )
                   registryInvalid.push(...categorized.production)
                   installFailed = true
                 }
@@ -298,17 +309,26 @@ export async function runPipeline(
 
               // Install dev packages
               if (categorized.dev.length > 0) {
+                const devBackup = createBackup(tools.getProjectRoot(), detectedPM)
+
                 const devResult = await installPackages({
                   packageManager: detectedPM,
                   packages: categorized.dev,
                   projectRoot: tools.getProjectRoot(),
                   category: 'dev',
                 })
+
                 if (devResult.ok) {
                   allInstalled.push(...categorized.dev)
                   installedDev.push(...categorized.dev)
+                  cleanupBackup(devBackup)
                 } else {
-                  pipelineLogger.warn({ error: devResult.error.message }, 'Dev install failed')
+                  restoreBackup(devBackup)
+                  lastInstallError = devResult.error
+                  pipelineLogger.warn(
+                    { error: devResult.error.message },
+                    'Dev install failed, rolled back project state'
+                  )
                   registryInvalid.push(...categorized.dev)
                   installFailed = true
                 }
@@ -341,6 +361,25 @@ export async function runPipeline(
               }
 
               if (installFailed && allInstalled.length === 0) {
+                // All installations failed — send structured feedback to coder
+                const failedPkgs = [...categorized.production, ...categorized.dev]
+                const feedback = formatInstallFailureFeedback(failedPkgs, lastInstallError!, detectedPM)
+
+                pipelineLogger.info(
+                  { taskId: task.id, failedPackages: failedPkgs },
+                  'Retrying coder with install failure feedback'
+                )
+
+                codeResult = await coderAgent(
+                  { ...coderInput, importValidationFeedback: feedback },
+                  createAgentContext('coder')
+                )
+
+                if (!codeResult.ok) {
+                  errors.push(`Coder failed after install rollback for task ${task.id}: ${codeResult.error.message}`)
+                  break
+                }
+
                 approved = []
               }
             }
