@@ -380,7 +380,8 @@ export async function runPipeline(
                   break
                 }
 
-                approved = []
+                // Coder rewrote without failed packages - exit import validation loop
+                break
               }
             }
           }
