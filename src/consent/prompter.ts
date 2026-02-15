@@ -1,10 +1,13 @@
 import { createInterface, type Interface } from 'node:readline'
 import type { ConsentScope } from './schema.js'
+import type { AlternativeInfo } from '../tools/importValidator.js'
 
 export type ConsentPromptOptions = {
   package: string
   reason?: string
   suggestedAlternatives?: string[]
+  alternatives?: AlternativeInfo[]
+  fileContext?: string[]
   nonInteractive?: boolean
 }
 
@@ -38,15 +41,36 @@ export class ConsentPrompter {
       console.log(`  Reason: ${options.reason}`)
     }
 
-    // Show alternatives
-    const alternatives = options.suggestedAlternatives ?? []
-    if (alternatives.length > 0) {
-      console.log('')
-      console.log(`\x1b[36m  💡 Alternatives already installed:\x1b[0m`)
-      for (let i = 0; i < alternatives.length; i++) {
-        console.log(`     ${i + 1}. ${alternatives[i]}`)
+    // Show file context
+    if (options.fileContext && options.fileContext.length > 0) {
+      console.log(`  Used in:`)
+      for (const file of options.fileContext) {
+        console.log(`    - ${file}`)
       }
     }
+
+    // Show structured alternatives (preferred) or legacy string alternatives
+    const structuredAlts = options.alternatives ?? []
+    const legacyAlts = options.suggestedAlternatives ?? []
+    const hasStructuredAlts = structuredAlts.length > 0
+
+    if (hasStructuredAlts) {
+      console.log('')
+      console.log(`\x1b[36m  Built-in alternatives available:\x1b[0m`)
+      for (let i = 0; i < structuredAlts.length; i++) {
+        const alt = structuredAlts[i] as AlternativeInfo
+        console.log(`     ${i + 1}. ${alt.module} - ${alt.description}`)
+        console.log(`        Example: ${alt.example}`)
+      }
+    } else if (legacyAlts.length > 0) {
+      console.log('')
+      console.log(`\x1b[36m  Alternatives already installed:\x1b[0m`)
+      for (let i = 0; i < legacyAlts.length; i++) {
+        console.log(`     ${i + 1}. ${legacyAlts[i]}`)
+      }
+    }
+
+    const selectableAlts = hasStructuredAlts ? structuredAlts : legacyAlts
 
     // Display options
     console.log('')
@@ -55,7 +79,7 @@ export class ConsentPrompter {
     console.log('    [s] Approve for session (until agent exits)')
     console.log('    [p] Approve for project (save to .qwen-agent-consent.json)')
     console.log('    [n] Reject (stop and fix manually)')
-    if (alternatives.length > 0) {
+    if (selectableAlts.length > 0) {
       console.log('    [1-9] Use alternative instead')
     }
     console.log('')
@@ -65,10 +89,16 @@ export class ConsentPrompter {
 
     // Parse numeric choice for alternatives
     const num = parseInt(input, 10)
-    if (!isNaN(num) && num >= 1 && num <= alternatives.length) {
-      const alt = alternatives[num - 1] as string
-      console.log(`\x1b[32m  ✓ Using alternative: ${alt}\x1b[0m`)
-      return { approved: true, scope: 'once', useAlternative: alt }
+    if (!isNaN(num) && num >= 1 && num <= selectableAlts.length) {
+      if (hasStructuredAlts) {
+        const alt = structuredAlts[num - 1] as AlternativeInfo
+        console.log(`\x1b[32m  ✓ Using built-in: ${alt.module}\x1b[0m`)
+        return { approved: false, scope: 'once', useAlternative: alt.module }
+      } else {
+        const alt = legacyAlts[num - 1] as string
+        console.log(`\x1b[32m  ✓ Using alternative: ${alt}\x1b[0m`)
+        return { approved: true, scope: 'once', useAlternative: alt }
+      }
     }
 
     switch (input) {
