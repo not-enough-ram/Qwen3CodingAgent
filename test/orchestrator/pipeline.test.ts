@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   detectPackageManager: vi.fn(),
   validatePackagesBatch: vi.fn(),
   installPackages: vi.fn(),
+  createBackup: vi.fn(),
+  restoreBackup: vi.fn(),
+  cleanupBackup: vi.fn(),
+  formatInstallFailureFeedback: vi.fn(),
 }))
 
 vi.mock('../../src/tools/packageManager.js', async (importOriginal) => {
@@ -27,6 +31,17 @@ vi.mock('../../src/tools/packageRegistry.js', async (importOriginal) => {
 vi.mock('../../src/tools/packageInstaller.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../src/tools/packageInstaller.js')>()
   return { ...original, installPackages: mocks.installPackages }
+})
+
+vi.mock('../../src/tools/installationBackup.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/tools/installationBackup.js')>()
+  return {
+    ...original,
+    createBackup: mocks.createBackup,
+    restoreBackup: mocks.restoreBackup,
+    cleanupBackup: mocks.cleanupBackup,
+    formatInstallFailureFeedback: mocks.formatInstallFailureFeedback,
+  }
 })
 
 function createMockToolKit(): ToolKit {
@@ -48,6 +63,11 @@ describe('runPipeline', () => {
     vi.clearAllMocks()
     // Default: no package manager detected (skip install path for existing tests)
     mocks.detectPackageManager.mockReturnValue(err({ found: [] }))
+    // Default backup/restore mocks
+    mocks.createBackup.mockReturnValue({ packageJson: { path: '/project/package.json', backupPath: '/project/package.json.backup-123' }, lockFile: null })
+    mocks.restoreBackup.mockImplementation(() => {})
+    mocks.cleanupBackup.mockImplementation(() => {})
+    mocks.formatInstallFailureFeedback.mockReturnValue('Install failed feedback')
   })
 
   it('runs full pipeline successfully', async () => {
@@ -814,6 +834,229 @@ describe('runPipeline', () => {
         (call) => call[0].category === 'dev' && call[0].packages.includes('zod')
       )
       expect(devCallWithZod).toBeUndefined()
+    })
+  })
+
+  describe('installation rollback', () => {
+    function createToolKitWithDeps(deps: Record<string, string> = {}, devDeps: Record<string, string> = {}): ToolKit {
+      const tools = createMockToolKit()
+      ;(tools.readFile as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+        if (path === 'package.json') {
+          return ok(JSON.stringify({
+            name: 'test-project',
+            dependencies: deps,
+            devDependencies: devDeps,
+          }))
+        }
+        return ok('file content')
+      })
+      return tools
+    }
+
+    function createInstallTestLLM(coderChanges: Array<{ path: string; content: string }>, reviewPasses = true, includeRetry = false): LLMClient {
+      const mock = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(
+            ok({
+              tasks: [
+                { id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] },
+              ],
+            })
+          )
+          // Architect
+          .mockResolvedValueOnce(
+            ok({
+              files: coderChanges.map((c) => ({
+                path: c.path,
+                operation: 'create',
+                description: 'Create file',
+              })),
+              reasoning: 'New files',
+            })
+          )
+          // Coder (initial)
+          .mockResolvedValueOnce(ok({ changes: coderChanges })),
+      }
+
+      // Add retry coder call if needed (for install failure tests)
+      if (includeRetry) {
+        mock.generateStructured.mockResolvedValueOnce(
+          ok({ changes: [{ path: 'src/fallback.ts', content: 'const x = 1' }] })
+        )
+      }
+
+      // Reviewer
+      mock.generateStructured.mockResolvedValueOnce(
+        ok({ passed: reviewPasses, issues: [], summary: 'OK' })
+      )
+
+      return mock
+    }
+
+    beforeEach(() => {
+      mocks.detectPackageManager.mockReturnValue(ok('npm' as const))
+      mocks.validatePackagesBatch.mockImplementation(async (packages: string[]) => {
+        const map = new Map<string, { exists: boolean }>()
+        for (const pkg of packages) {
+          map.set(pkg, { exists: true })
+        }
+        return map
+      })
+    })
+
+    it('restoreBackup called on production install failure', async () => {
+      const tools = createToolKitWithDeps()
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/app.ts', content: "import express from 'express'\nconst app = express()" },
+      ], true, true) // includeRetry=true for install failure coder retry
+
+      // Mock install failure
+      mocks.installPackages.mockResolvedValue(
+        err({ type: 'install_failed', message: 'Install failed', exitCode: 1 } as const)
+      )
+
+      await runPipeline('Create app', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      // Verify backup was created
+      expect(mocks.createBackup).toHaveBeenCalled()
+      // Verify restore was called (not cleanup)
+      expect(mocks.restoreBackup).toHaveBeenCalled()
+      expect(mocks.cleanupBackup).not.toHaveBeenCalled()
+    })
+
+    it('cleanupBackup called on production install success', async () => {
+      const tools = createToolKitWithDeps()
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/app.ts', content: "import express from 'express'\nconst app = express()" },
+      ])
+
+      // Mock install success
+      mocks.installPackages.mockResolvedValue(
+        ok({ success: true, packages: ['express'], packageManager: 'npm' as const })
+      )
+
+      await runPipeline('Create app', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      // Verify cleanup was called (not restore)
+      expect(mocks.cleanupBackup).toHaveBeenCalled()
+      expect(mocks.restoreBackup).not.toHaveBeenCalled()
+    })
+
+    it('separate backup boundaries for prod and dev', async () => {
+      const tools = createToolKitWithDeps()
+      const mockLLM = createInstallTestLLM([
+        { path: 'src/app.ts', content: "import express from 'express'\nconst app = express()" },
+        { path: 'test/app.test.ts', content: "import sinon from 'sinon'\nconst stub = sinon.stub()" },
+      ], true, true) // includeRetry=true for dev install failure coder retry
+
+      // Mock: prod succeeds, dev fails
+      mocks.installPackages
+        .mockResolvedValueOnce(
+          ok({ success: true, packages: ['express'], packageManager: 'npm' as const })
+        )
+        .mockResolvedValueOnce(
+          err({ type: 'install_failed', message: 'Dev install failed', exitCode: 1 } as const)
+        )
+
+      await runPipeline('Create app with tests', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      // Verify createBackup called twice (once for prod, once for dev)
+      expect(mocks.createBackup).toHaveBeenCalledTimes(2)
+      // Verify cleanupBackup called once for prod success
+      const cleanupCalls = mocks.cleanupBackup.mock.calls
+      expect(cleanupCalls.length).toBe(1)
+      // Verify restoreBackup called once for dev failure
+      const restoreCalls = mocks.restoreBackup.mock.calls
+      expect(restoreCalls.length).toBe(1)
+    })
+
+    it('coder receives failure feedback after rollback', async () => {
+      const tools = createToolKitWithDeps()
+
+      // Need to mock coder being called twice: once initial, once retry with feedback
+      const mockLLM: LLMClient = {
+        generate: vi.fn(),
+        generateStructured: vi.fn()
+          // Planner
+          .mockResolvedValueOnce(
+            ok({
+              tasks: [
+                { id: 'task-1', title: 'Task', description: 'Desc', dependsOn: [], estimatedFiles: [] },
+              ],
+            })
+          )
+          // Architect
+          .mockResolvedValueOnce(
+            ok({
+              files: [{ path: 'src/app.ts', operation: 'create', description: 'Create' }],
+              reasoning: 'New',
+            })
+          )
+          // Coder first attempt - uses express
+          .mockResolvedValueOnce(
+            ok({
+              changes: [{ path: 'src/app.ts', content: "import express from 'express'\nconst app = express()" }],
+            })
+          )
+          // Coder retry after install failure (receives feedback)
+          .mockResolvedValueOnce(
+            ok({
+              changes: [{ path: 'src/app.ts', content: "import { createServer } from 'node:http'\nconst server = createServer()" }],
+            })
+          )
+          // Reviewer passes
+          .mockResolvedValueOnce(ok({ passed: true, issues: [], summary: 'OK' })),
+      }
+
+      // Mock install failure
+      mocks.installPackages.mockResolvedValue(
+        err({ type: 'install_failed', message: 'Package not found', exitCode: 1 } as const)
+      )
+
+      // Mock formatInstallFailureFeedback to return specific text
+      mocks.formatInstallFailureFeedback.mockReturnValue(
+        'Package installation failed (npm exit code 1).\nPackages: express\n\nProject state has been rolled back to before installation attempt.'
+      )
+
+      const result = await runPipeline('Create app', {
+        llm: mockLLM,
+        tools,
+        config,
+        logger,
+        autoInstall: true,
+      })
+
+      expect(result.ok).toBe(true)
+
+      // Verify formatInstallFailureFeedback was called with failed packages
+      expect(mocks.formatInstallFailureFeedback).toHaveBeenCalledWith(
+        ['express'],
+        expect.objectContaining({ type: 'install_failed' }),
+        'npm'
+      )
+
+      // Verify coder was called 4 times total: planner + architect + coder initial + coder retry
+      expect(mockLLM.generateStructured).toHaveBeenCalledTimes(5) // +1 reviewer at end
     })
   })
 })
