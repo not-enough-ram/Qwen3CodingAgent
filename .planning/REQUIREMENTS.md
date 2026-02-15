@@ -17,13 +17,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **INST-01**: Agent installs approved packages using the detected package manager
 - [x] **INST-02**: Package manager updates manifest files (package.json) and lock files automatically
-- [ ] **INST-03**: Agent offers built-in alternatives when available (e.g., node:https instead of axios)
-- [ ] **INST-04**: User can choose between installing a package or using the built-in alternative
+- [x] **INST-03**: Agent offers built-in alternatives when available (e.g., node:https instead of axios)
+- [x] **INST-04**: User can choose between installing a package or using the built-in alternative
 
 ### Safety
 
 - [x] **SAFE-01**: Agent validates package names against npm registry before installing
-- [ ] **SAFE-02**: Agent rolls back to previous state if installation fails or breaks the project
+- [x] **SAFE-02**: Agent rolls back to previous state if installation fails or breaks the project
 - [x] **SAFE-03**: All installations require user consent via existing consent manager
 
 ## v2 Requirements
@@ -70,10 +70,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEP-03 | Phase 2 | ✓ Done |
 | INST-01 | Phase 1 | ✓ Done |
 | INST-02 | Phase 1 | ✓ Done |
-| INST-03 | Phase 3 | Pending |
-| INST-04 | Phase 3 | Pending |
+| INST-03 | Phase 3 | ✓ Done |
+| INST-04 | Phase 3 | ✓ Done |
 | SAFE-01 | Phase 2 | ✓ Done |
-| SAFE-02 | Phase 4 | Pending |
+| SAFE-02 | Phase 4 | ✓ Done |
 | SAFE-03 | Phase 2 | ✓ Done |
 
 **Coverage:**
