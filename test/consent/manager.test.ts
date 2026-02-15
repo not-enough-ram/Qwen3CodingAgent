@@ -132,6 +132,87 @@ describe('ConsentManager', () => {
     })
   })
 
+  describe('checkBatchApprovalWithAlternatives', () => {
+    it('returns approved packages in approved array', async () => {
+      mockPrompter.prompt
+        .mockResolvedValueOnce({ approved: true, scope: 'once' })
+        .mockResolvedValueOnce({ approved: true, scope: 'once' })
+
+      const result = await manager.checkBatchApprovalWithAlternatives(['axios', 'lodash'])
+
+      expect(result.approved).toEqual(['axios', 'lodash'])
+      expect(result.alternatives.size).toBe(0)
+      expect(result.rejected).toEqual([])
+    })
+
+    it('returns alternative selections in alternatives map', async () => {
+      mockPrompter.prompt.mockResolvedValueOnce({
+        approved: false,
+        scope: 'once',
+        useAlternative: 'node:crypto',
+      })
+
+      const result = await manager.checkBatchApprovalWithAlternatives(['uuid'])
+
+      expect(result.approved).toEqual([])
+      expect(result.alternatives.get('uuid')).toBe('node:crypto')
+      expect(result.rejected).toEqual([])
+    })
+
+    it('returns rejected packages and stops batch on rejection', async () => {
+      mockPrompter.prompt
+        .mockResolvedValueOnce({ approved: true, scope: 'once' })
+        .mockResolvedValueOnce({ approved: false, scope: 'once' })
+
+      const result = await manager.checkBatchApprovalWithAlternatives(['axios', 'lodash', 'chalk'])
+
+      expect(result.approved).toEqual(['axios'])
+      expect(result.rejected).toEqual(['lodash'])
+      expect(mockPrompter.prompt).toHaveBeenCalledTimes(2)
+    })
+
+    it('project-approved packages bypass prompt', async () => {
+      mockStorage.isApproved.mockResolvedValue(true)
+
+      const result = await manager.checkBatchApprovalWithAlternatives(['axios'])
+
+      expect(result.approved).toEqual(['axios'])
+      expect(mockPrompter.prompt).not.toHaveBeenCalled()
+    })
+
+    it('session-approved packages bypass prompt', async () => {
+      // First approve with session scope
+      mockPrompter.prompt.mockResolvedValueOnce({ approved: true, scope: 'session' })
+      await manager.checkBatchApprovalWithAlternatives(['lodash'])
+
+      // Second call — session approved, no prompt
+      const result = await manager.checkBatchApprovalWithAlternatives(['lodash'])
+
+      expect(result.approved).toEqual(['lodash'])
+      // prompt called only once (first time)
+      expect(mockPrompter.prompt).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes structured alternatives and fileContext to prompter', async () => {
+      mockPrompter.prompt.mockResolvedValueOnce({ approved: true, scope: 'once' })
+
+      const alternatives = new Map([
+        ['axios', { description: 'Use fetch()', module: 'fetch', example: 'fetch(url)', minNodeVersion: '18.0.0' }],
+      ])
+      const fileContext = new Map([['axios', ['src/api.ts', 'src/client.ts']]])
+
+      await manager.checkBatchApprovalWithAlternatives(['axios'], { alternatives, fileContext })
+
+      expect(mockPrompter.prompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          package: 'axios',
+          alternatives: [alternatives.get('axios')],
+          fileContext: ['src/api.ts', 'src/client.ts'],
+        })
+      )
+    })
+  })
+
   describe('non-interactive mode', () => {
     it('auto-rejects in non-interactive mode', async () => {
       mockPrompter.prompt.mockResolvedValue({ approved: false, scope: 'once' })
