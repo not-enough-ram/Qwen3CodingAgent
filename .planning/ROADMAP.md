@@ -64,8 +64,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Structured SUBSTITUTION_MAP + enhanced ConsentPrompter with alternatives and file context
-- [ ] 03-02-PLAN.md — Pipeline integration for alternative selection flow and coder retry
+- [x] 03-01-PLAN.md — Structured SUBSTITUTION_MAP + enhanced ConsentPrompter with alternatives and file context
+- [x] 03-02-PLAN.md — Pipeline integration for alternative selection flow and coder retry
 
 ### Phase 4: Installation Safety & Recovery
 **Goal**: Agent safely handles installation failures and rolls back project state on failure
@@ -77,10 +77,11 @@ Plans:
   3. Rollback preserves project integrity (no partial installations or corrupted lock files)
   4. User receives clear error messages explaining failure reason and rollback actions taken
   5. Subsequent coder attempts receive feedback about failed package installation
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD during phase planning
+- [ ] 04-01-PLAN.md — Installation backup/restore module + error formatting (TDD)
+- [ ] 04-02-PLAN.md — Pipeline integration for backup/restore with coder failure feedback
 
 ## Progress
 
@@ -91,5 +92,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Ecosystem Detection & Package Manager Support | 3/3 | ✓ Complete | 2026-02-14 |
 | 2. Dependency Analysis & Safety | 3/3 | ✓ Complete | 2026-02-14 |
-| 3. User Experience & Intelligent Alternatives | 0/2 | Not started | - |
-| 4. Installation Safety & Recovery | 0/TBD | Not started | - |
+| 3. User Experience & Intelligent Alternatives | 2/2 | ✓ Complete | 2026-02-15 |
+| 4. Installation Safety & Recovery | 0/2 | Planned | - |
