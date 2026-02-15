@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ImportValidator, ImportValidationError } from '../../src/tools/importValidator.js'
+import { ImportValidator, ImportValidationError, SUBSTITUTION_MAP } from '../../src/tools/importValidator.js'
 
 describe('ImportValidator', () => {
   const validator = new ImportValidator(['zod', 'express', '@types/node'], ['vitest', 'typescript'])
@@ -114,7 +114,7 @@ describe('ImportValidator', () => {
       `
       const result = validator.validate(code)
       expect(result.suggestedFixes.length).toBe(3)
-      expect(result.suggestedFixes.some((s) => s.includes('axios') && s.includes('node:http'))).toBe(true)
+      expect(result.suggestedFixes.some((s) => s.includes('axios') && s.includes('fetch'))).toBe(true)
       expect(result.suggestedFixes.some((s) => s.includes('uuid') && s.includes('randomUUID'))).toBe(true)
       expect(result.suggestedFixes.some((s) => s.includes('lodash') && s.includes('Array'))).toBe(true)
     })
@@ -192,6 +192,43 @@ describe('ImportValidator', () => {
 
       expect(result.valid).toBe(false)
       expect(result.rejectedPackages).toEqual(['axios'])
+    })
+  })
+
+  describe('alternatives', () => {
+    it('validate() returns alternatives map for known packages', () => {
+      const code = `
+        import axios from 'axios'
+        import { v4 } from 'uuid'
+      `
+      const result = validator.validate(code)
+      expect(result.alternatives.size).toBe(2)
+      expect(result.alternatives.get('axios')).toBeDefined()
+      expect(result.alternatives.get('axios')!.module).toBe('fetch')
+      expect(result.alternatives.get('uuid')!.module).toBe('node:crypto')
+    })
+
+    it('validate() returns empty alternatives for unknown packages', () => {
+      const code = `import foo from 'some-unknown-pkg'`
+      const result = validator.validate(code)
+      expect(result.alternatives.size).toBe(0)
+    })
+
+    it('getAlternative() returns AlternativeInfo for known package', () => {
+      const alt = validator.getAlternative('axios')
+      expect(alt).toBeDefined()
+      expect(alt!.module).toBe('fetch')
+      expect(alt!.description).toContain('fetch')
+      expect(alt!.example).toBeTruthy()
+      expect(alt!.minNodeVersion).toBe('18.0.0')
+    })
+
+    it('getAlternative() returns undefined for unknown package', () => {
+      expect(validator.getAlternative('some-unknown-pkg')).toBeUndefined()
+    })
+
+    it('SUBSTITUTION_MAP has comprehensive coverage (19+ entries)', () => {
+      expect(Object.keys(SUBSTITUTION_MAP).length).toBeGreaterThanOrEqual(19)
     })
   })
 

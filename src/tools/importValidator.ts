@@ -8,30 +8,135 @@ const BUILTIN_MODULES = new Set([
   'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib',
 ])
 
-const SUBSTITUTION_MAP: Record<string, string> = {
-  'axios': 'Use node:https or node:http for HTTP requests',
-  'node-fetch': 'Use node:https or node:http for HTTP requests',
-  'got': 'Use node:https or node:http for HTTP requests',
-  'request': 'Use node:https or node:http for HTTP requests',
-  'superagent': 'Use node:https or node:http for HTTP requests',
-  'uuid': 'Use crypto.randomUUID() from node:crypto',
-  'lodash': 'Use native Array/Object methods',
-  'underscore': 'Use native Array/Object methods',
-  'fs-extra': 'Use node:fs with recursive options',
-  'mkdirp': 'Use fs.mkdirSync(path, { recursive: true }) from node:fs',
-  'rimraf': 'Use fs.rmSync(path, { recursive: true }) from node:fs',
-  'glob': 'Use fs.readdirSync with recursion or node:fs/promises',
-  'chalk': 'Use ANSI escape codes directly or no coloring',
-  'colors': 'Use ANSI escape codes directly or no coloring',
-  'moment': 'Use native Date and Intl.DateTimeFormat',
-  'dayjs': 'Use native Date and Intl.DateTimeFormat',
-  'path-exists': 'Use fs.existsSync() from node:fs',
+export type AlternativeInfo = {
+  description: string
+  module: string
+  example: string
+  minNodeVersion: string
+}
+
+export const SUBSTITUTION_MAP: Record<string, AlternativeInfo> = {
+  'axios': {
+    description: 'Use native fetch() for HTTP requests',
+    module: 'fetch',
+    example: 'const res = await fetch("https://api.example.com")',
+    minNodeVersion: '18.0.0',
+  },
+  'node-fetch': {
+    description: 'Use native fetch() for HTTP requests',
+    module: 'fetch',
+    example: 'const res = await fetch("https://api.example.com")',
+    minNodeVersion: '18.0.0',
+  },
+  'got': {
+    description: 'Use native fetch() for HTTP requests',
+    module: 'fetch',
+    example: 'const res = await fetch(url, { method: "POST", body: JSON.stringify(data) })',
+    minNodeVersion: '18.0.0',
+  },
+  'request': {
+    description: 'Use native fetch() for HTTP requests (request is deprecated)',
+    module: 'fetch',
+    example: 'const res = await fetch("https://api.example.com")',
+    minNodeVersion: '18.0.0',
+  },
+  'superagent': {
+    description: 'Use native fetch() for HTTP requests',
+    module: 'fetch',
+    example: 'const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" } })',
+    minNodeVersion: '18.0.0',
+  },
+  'uuid': {
+    description: 'Use crypto.randomUUID() from node:crypto',
+    module: 'node:crypto',
+    example: 'import { randomUUID } from "node:crypto"; const id = randomUUID()',
+    minNodeVersion: '14.17.0',
+  },
+  'lodash': {
+    description: 'Use native Array/Object methods',
+    module: 'native',
+    example: 'array.map/filter/reduce, Object.keys/values/entries, structuredClone()',
+    minNodeVersion: '14.0.0',
+  },
+  'underscore': {
+    description: 'Use native Array/Object methods',
+    module: 'native',
+    example: 'array.map/filter/reduce, Object.keys/values/entries',
+    minNodeVersion: '14.0.0',
+  },
+  'fs-extra': {
+    description: 'Use node:fs with recursive options',
+    module: 'node:fs',
+    example: 'import { cpSync, mkdirSync } from "node:fs"; cpSync(src, dest, { recursive: true })',
+    minNodeVersion: '16.7.0',
+  },
+  'mkdirp': {
+    description: 'Use fs.mkdirSync with recursive option',
+    module: 'node:fs',
+    example: 'import { mkdirSync } from "node:fs"; mkdirSync(path, { recursive: true })',
+    minNodeVersion: '10.12.0',
+  },
+  'rimraf': {
+    description: 'Use fs.rmSync with recursive option',
+    module: 'node:fs',
+    example: 'import { rmSync } from "node:fs"; rmSync(path, { recursive: true, force: true })',
+    minNodeVersion: '14.14.0',
+  },
+  'glob': {
+    description: 'Use fs.globSync from node:fs',
+    module: 'node:fs',
+    example: 'import { globSync } from "node:fs"; const files = globSync("**/*.ts")',
+    minNodeVersion: '22.0.0',
+  },
+  'chalk': {
+    description: 'Use ANSI escape codes directly',
+    module: 'native',
+    example: 'console.log("\\x1b[31mred text\\x1b[0m")',
+    minNodeVersion: '14.0.0',
+  },
+  'colors': {
+    description: 'Use ANSI escape codes directly',
+    module: 'native',
+    example: 'console.log("\\x1b[32mgreen text\\x1b[0m")',
+    minNodeVersion: '14.0.0',
+  },
+  'moment': {
+    description: 'Use native Date and Intl.DateTimeFormat',
+    module: 'native',
+    example: 'new Intl.DateTimeFormat("en", { dateStyle: "full" }).format(new Date())',
+    minNodeVersion: '14.0.0',
+  },
+  'dayjs': {
+    description: 'Use native Date and Intl.DateTimeFormat',
+    module: 'native',
+    example: 'new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date())',
+    minNodeVersion: '14.0.0',
+  },
+  'path-exists': {
+    description: 'Use fs.existsSync from node:fs',
+    module: 'node:fs',
+    example: 'import { existsSync } from "node:fs"; const exists = existsSync(path)',
+    minNodeVersion: '14.0.0',
+  },
+  'deep-equal': {
+    description: 'Use util.isDeepStrictEqual from node:util',
+    module: 'node:util',
+    example: 'import { isDeepStrictEqual } from "node:util"; isDeepStrictEqual(a, b)',
+    minNodeVersion: '14.0.0',
+  },
+  'depd': {
+    description: 'Use util.deprecate from node:util',
+    module: 'node:util',
+    example: 'import { deprecate } from "node:util"; const fn = deprecate(oldFn, "Use newFn instead")',
+    minNodeVersion: '14.0.0',
+  },
 }
 
 export type ImportValidationResult = {
   valid: boolean
   missingPackages: string[]
   suggestedFixes: string[]
+  alternatives: Map<string, AlternativeInfo>
 }
 
 export class ImportValidationError extends Error {
@@ -127,17 +232,23 @@ export class ImportValidator {
     return result
   }
 
+  getAlternative(pkg: string): AlternativeInfo | undefined {
+    return SUBSTITUTION_MAP[pkg]
+  }
+
   validate(code: string): ImportValidationResult {
     const imports = this.extractImports(code)
     const missingPackages: string[] = []
     const suggestedFixes: string[] = []
+    const alternatives = new Map<string, AlternativeInfo>()
 
     for (const pkg of imports) {
       if (!this.allowedPackages.has(pkg)) {
         missingPackages.push(pkg)
-        const suggestion = SUBSTITUTION_MAP[pkg]
-        if (suggestion) {
-          suggestedFixes.push(`${pkg}: ${suggestion}`)
+        const altInfo = SUBSTITUTION_MAP[pkg]
+        if (altInfo) {
+          suggestedFixes.push(`${pkg}: ${altInfo.description}`)
+          alternatives.set(pkg, altInfo)
         } else {
           suggestedFixes.push(`${pkg}: Remove this import or implement the functionality manually`)
         }
@@ -148,6 +259,7 @@ export class ImportValidator {
       valid: missingPackages.length === 0,
       missingPackages,
       suggestedFixes,
+      alternatives,
     }
   }
 
